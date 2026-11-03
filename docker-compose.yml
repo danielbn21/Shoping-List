@@ -1,0 +1,11 @@
+services:
+  shoplist:
+    build: .
+    container_name: shoplist
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-3000}:3000"   # change with HOST_PORT=3010 if 3000 is taken; point NPM at this port
+    volumes:
+      - ./data:/data         # SQLite database lives here: back this folder up
+    environment:
+      - TZ=${TZ:-UTC}        # set your timezone, e.g. TZ=Asia/Jerusalem (used by scheduled notifications later)

@@ -1,0 +1,19 @@
+{
+  "name": "shoplist-server",
+  "version": "3.2.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^9.4.0",
+    "@fastify/rate-limit": "^9.1.0",
+    "@fastify/static": "^7.0.4",
+    "better-sqlite3": "^11.5.0",
+    "fastify": "^4.28.1",
+    "nodemailer": "^6.9.16"
+  }
+}
