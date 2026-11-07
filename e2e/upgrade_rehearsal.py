@@ -6,7 +6,7 @@ env = lambda web: dict(os.environ, DATA_DIR="/tmp/up/data", WEB_DIR=web, PORT="3
 def start(cwd, web):
     p = subprocess.Popen(["node", "src/index.js"], cwd=cwd, env=env(web), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); time.sleep(2); return p
 def asset(page): return page.evaluate("[...document.scripts].map(s => s.src).find(s => s.includes('/assets/'))").split('/')[-1]
-srv = start("/home/claude/shoplist/server", "/home/claude/shoplist/web/dist")      # server 3.2.1 + app 3.2.1
+srv = start("/home/claude/shoplist/server", "/home/claude/shoplist/web/dist")      # server and app at the current version
 with sync_playwright() as p:
     br = p.chromium.launch(); ctx = br.new_context(); page = ctx.new_page()
     page.goto("http://127.0.0.1:3997"); page.wait_for_selector("text=Set up your server")

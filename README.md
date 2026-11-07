@@ -2,7 +2,7 @@
 
 Self-hosted, multi-user household shopping list. One Docker container serves both the API and the installable web app.
 
-**Status: Stage 3.2.** Everything from 3.1, plus prices, totals and receipt photos on Finish trip, **List History** (review, correct and restore past trips), receipt scanning (local Tesseract, or your own cloud API key), CSV export of purchases, and CSV backup/restore/move of the item bank. Next: live sync and offline.
+**Version 1.1.0.** History lines are one row each and permanent (correct them, never delete them). Each list has a **Compare prices** tab: pick supermarket chains in Manage list and see an estimated total and item coverage per chain, based on prices from your own receipts (live chain prices are planned). Since 1.0.0 it also has prices, totals and receipt photos on Finish trip, **List History** (review, correct and restore past trips), receipt scanning (local Tesseract, or your own cloud API key), CSV export of purchases, and CSV backup/restore/move of the item bank. Next: live chain prices (1.2.0), then live sync and offline.
 
 ## Run it
 
@@ -112,10 +112,23 @@ Every item name is normalised (case, punctuation, accents, Hebrew niqqud and fin
 
 ## Upgrading
 
+Recommended: **`./update.sh`** (pulls from GitHub, builds first, backs up `data/`, starts the new version, checks it, and rolls back by itself if it fails). Also `./update.sh --tag v3.3.0`, `--rollback` and `--dry-run`. See `docs/HANDOFF.md` section 4. By hand:
+
 1. Replace the project folder with the new zip but keep your `data/` folder.
 2. **Keep your port setting:** a new `docker-compose.yml` overwrites the old one, so put your port in a `.env` file next to it (`HOST_PORT=3010`) and it survives upgrades.
 3. `docker compose up -d --build` and **read the output**: if the build fails (network, apt, npm), compose keeps the OLD container running and you keep seeing the old version.
 4. Settings shows `Version: app X · server Y`. If a device still runs old files, a yellow *Update now* banner appears; it clears the cached app and reloads.
+
+## Run the published image (GitHub container registry)
+
+Pushing a version tag builds, tests and publishes the image, so the server can *pull* it instead of building.
+
+1. **Publish:** `scripts/set-version.sh 1.0.1`, commit, then `git tag -a v1.0.1 -m "v1.0.1" && git push && git push --tags`. Watch the *Release image* run under the repository's **Actions** tab. The image appears under your profile's **Packages** as `ghcr.io/YOUR-USER/YOUR-REPO` (all lowercase) with tags `1.0.1`, `1.0` and `latest`. The run refuses to publish if the tag and the versions in `server/package.json` and `web/package.json` disagree.
+2. **Let the server pull it (private repositories):** create a *Personal access token (classic)* with only the `read:packages` scope, then on the server: `echo YOUR_TOKEN | docker login ghcr.io -u YOUR-GITHUB-USER --password-stdin`.
+3. **Point the server at it:** in `.env` set `SHOPLIST_IMAGE=ghcr.io/YOUR-USER/YOUR-REPO` and `SHOPLIST_TAG=1.0.1`.
+4. **Install or upgrade:** back up `data/` (`cp -a data data-backup-$(date +%F)`), then `docker compose pull && docker compose up -d`. To roll back, set the previous `SHOPLIST_TAG` and run the same two commands (restore the backup too if the newer version had changed the database).
+
+Without those two variables the compose file keeps building from source, so `./update.sh` works as before. The image contains the app only; your data, photos and keys stay in `./data` on the server.
 
 ## Troubleshooting
 

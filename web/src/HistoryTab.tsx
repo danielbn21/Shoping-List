@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { t, errText, getLang } from './i18n';
 import { effectiveCurrency, formatMoney } from './money';
@@ -177,8 +177,8 @@ function TripDetail({ id, me, listId, onChanged }: { id: number; me: Me; listId:
 
       <section className="stack-sm">
         <h3>{t('restoreHeading')}</h3>
-        {d.lines.map((l) => <LineRow key={l.id} line={l} checked={selected.has(l.id)} onCheck={(on) => toggle(l.id, on)} onSave={saveLine}
-          onRemove={() => { if (confirm(t('confirmRemoveLine', { name: l.name }))) run(() => api(`/purchases/${l.id}`, { method: 'DELETE' })); }} />)}
+        <div className="hrow hhead muted" aria-hidden="true"><span /><span /><span className="hnum">{t('qtyShort')}</span><span className="hnum">{t('priceShort')}</span><span className="hnum">{t('lineTotalShort')}</span><span /></div>
+        {d.lines.map((l) => <LineRow key={l.id} line={l} checked={selected.has(l.id)} onCheck={(on) => toggle(l.id, on)} onSave={saveLine} />)}
         <div className="row">
           <button className="btn primary" disabled={busy || picked.length === 0} onClick={restore}>{t('restoreSelected', { n: picked.length })}</button>
           <button className="btn small" aria-label={picked.length === d.lines.length ? '☐' : '☑'} onClick={() => setSelected(picked.length === d.lines.length ? new Set() : new Set(d.lines.map((l) => l.id)))}>
@@ -190,33 +190,57 @@ function TripDetail({ id, me, listId, onChanged }: { id: number; me: Me; listId:
   );
 }
 
-function LineRow({ line, checked, onCheck, onSave, onRemove }: { line: TripLine; checked: boolean; onCheck: (on: boolean) => void; onSave: (id: number, patch: Record<string, unknown>) => void; onRemove: () => void }) {
+const n2 = (v: number | null) => (v === null ? '—' : v.toFixed(2));
+
+// One line per purchased item: tick (for restore), name, quantity bought, unit price, line total, and ✎ to correct them.
+// Nothing here deletes: history is permanent. Restore uses the purchased quantities; adjust them afterwards in Manage list.
+function LineRow({ line, checked, onCheck, onSave }: { line: TripLine; checked: boolean; onCheck: (on: boolean) => void; onSave: (id: number, patch: Record<string, unknown>) => Promise<void> | void }) {
+  const [full, setFull] = useState(false); // tap the name to read all of it
+  const [editing, setEditing] = useState(false);
   const [qty, setQty] = useState(fmt(line.quantity));
   const [price, setPrice] = useState(line.unitPrice === null ? '' : String(line.unitPrice));
   const [total, setTotal] = useState(line.lineTotal === null ? '' : String(line.lineTotal));
-  useEffect(() => {
-    setQty(fmt(line.quantity)); setPrice(line.unitPrice === null ? '' : String(line.unitPrice)); setTotal(line.lineTotal === null ? '' : String(line.lineTotal));
-  }, [line.quantity, line.unitPrice, line.lineTotal]);
+  const reset = () => { setQty(fmt(line.quantity)); setPrice(line.unitPrice === null ? '' : String(line.unitPrice)); setTotal(line.lineTotal === null ? '' : String(line.lineTotal)); };
+  useEffect(() => { if (!editing) reset(); /* eslint-disable-next-line */ }, [line.quantity, line.unitPrice, line.lineTotal, editing]);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const patch: Record<string, unknown> = {};
+    const q = Number(qty);
+    if (q > 0 && q !== line.quantity) patch.quantity = q;
+    const p = num(price), tl = num(total);
+    if (p !== line.unitPrice) patch.unitPrice = p;
+    if (tl !== line.lineTotal) patch.lineTotal = tl; // if both are changed the total wins
+    if (Object.keys(patch).length) await onSave(line.id, patch);
+    setEditing(false);
+  };
+
   return (
     <div className="hline">
-      <div className="row" style={{ flexWrap: 'nowrap' }}>
-        <label className="check grow" style={{ minWidth: 0 }}>
-          <input type="checkbox" checked={checked} onChange={(e) => onCheck(e.target.checked)} aria-label={line.name} />
-          <span className="hname">{line.name}</span>
-        </label>
-        <button className="iconbtn danger" aria-label={t('removeLine')} title={t('removeLine')} onClick={onRemove}>✕</button>
+      <div className="hrow">
+        <input type="checkbox" checked={checked} onChange={(e) => onCheck(e.target.checked)} aria-label={line.name} />
+        <button type="button" className={`hn${full ? ' open' : ''}`} title={line.name} aria-expanded={full} onClick={() => setFull(!full)}>{line.name}</button>
+        <span className="hnum" dir="ltr">{fmt(line.quantity)}</span>
+        <span className="hnum" dir="ltr">{n2(line.unitPrice)}</span>
+        <strong className="hnum" dir="ltr">{n2(line.lineTotal)}</strong>
+        <button type="button" className="iconbtn" aria-label={t('editLine')} title={t('editLine')} aria-expanded={editing} onClick={() => setEditing(!editing)}>✎</button>
       </div>
-      <div className="hnums">
-        <label><span className="muted">{t('qtyShort')}</span>
-          <input type="number" inputMode="decimal" min="0" step="any" dir="ltr" value={qty} aria-label={`${t('qtyShort')} ${line.name}`}
-            onChange={(e) => setQty(e.target.value)} onBlur={() => { const v = Number(qty); if (v > 0 && v !== line.quantity) onSave(line.id, { quantity: v }); }} /></label>
-        <label><span className="muted">{t('priceShort')}</span>
-          <input type="number" inputMode="decimal" min="0" step="0.01" dir="ltr" value={price} aria-label={`${t('priceShort')} ${line.name}`}
-            onChange={(e) => setPrice(e.target.value)} onBlur={() => { const v = num(price); if (v !== line.unitPrice) onSave(line.id, { unitPrice: v }); }} /></label>
-        <label><span className="muted">{t('lineTotalShort')}</span>
-          <input type="number" inputMode="decimal" min="0" step="0.01" dir="ltr" value={total} aria-label={`${t('lineTotalShort')} ${line.name}`}
-            onChange={(e) => setTotal(e.target.value)} onBlur={() => { const v = num(total); if (v !== line.lineTotal) onSave(line.id, { lineTotal: v }); }} /></label>
-      </div>
+      {editing && (
+        <form className="stack-sm" onSubmit={submit}>
+          <div className="hnums">
+            <label><span className="muted">{t('qtyShort')}</span>
+              <input type="number" inputMode="decimal" min="0" step="any" dir="ltr" value={qty} onChange={(e) => setQty(e.target.value)} /></label>
+            <label><span className="muted">{t('priceShort')}</span>
+              <input type="number" inputMode="decimal" min="0" step="0.01" dir="ltr" value={price} onChange={(e) => setPrice(e.target.value)} /></label>
+            <label><span className="muted">{t('lineTotalShort')}</span>
+              <input type="number" inputMode="decimal" min="0" step="0.01" dir="ltr" value={total} onChange={(e) => setTotal(e.target.value)} /></label>
+          </div>
+          <div className="row">
+            <button className="btn small primary" type="submit">{t('save')}</button>
+            <button className="btn small" type="button" onClick={() => { reset(); setEditing(false); }}>{t('cancel')}</button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

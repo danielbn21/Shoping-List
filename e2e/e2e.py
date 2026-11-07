@@ -210,15 +210,31 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Save to history").click()
     page.wait_for_selector("text=Check the receipt", state="detached")
     page.wait_for_timeout(500)
-    check("receipt price copied onto the Milk line", page.get_by_label("Total Milk").input_value() == "7.9", page.get_by_label("Total Milk").input_value())
-    check("cucumbers keep quantity 2 and unit price 4.5 from the receipt", page.get_by_label("Qty Cucumbers").input_value() == "2" and page.get_by_label("Price Cucumbers").input_value() == "4.5")
-    check("lines for items that were not on the list were added", page.locator(".hname:text-is('Bread')").count() == 1 and page.locator(".hname:has-text('Rice')").count() == 1, str(page.locator(".hname").all_inner_texts()))
+    row = lambda name: page.locator(".hline", has=page.locator(".hn", has_text=name)).first
+    check("receipt price copied onto the Milk line", "7.90" in row("Milk").locator(".hrow").inner_text(), row("Milk").inner_text())
+    cuc = row("Cucumbers").locator(".hrow").inner_text()
+    check("cucumbers keep quantity 2 and unit price 4.50, total 9.00 from the receipt", "2" in cuc and "4.50" in cuc and "9.00" in cuc, cuc)
+    check("lines for items that were not on the list were added", page.locator(".hn:text-is('Bread')").count() == 1 and page.locator(".hn:has-text('Rice')").count() == 1, str(page.locator(".hn").all_inner_texts()))
 
-    # correct a price by hand afterwards
-    page.get_by_label("Price Bread").fill("13")
-    page.get_by_label("Price Bread").press("Tab")
-    page.wait_for_function("document.querySelector('[aria-label=\"Total Bread\"]').value === '13'")
-    check("editing a unit price recalculates the line total", True)
+    # every history line is ONE row: tick, name, qty, price, total and edit share a baseline
+    boxes = [page.locator(".hline").first.locator(sel).bounding_box() for sel in ["input[type=checkbox]", ".hn", ".hnum >> nth=0", ".hnum >> nth=1", ".hnum >> nth=2", "button[aria-label='Correct this line']"]]
+    mids = [bx["y"] + bx["height"] / 2 for bx in boxes]
+    check("history line is a single row (phone)", max(mids) - min(mids) < 6 and page.locator(".hline").first.locator(".hrow").bounding_box()["height"] < 60, str(mids))
+    check("history lines have no delete button (history is permanent)", page.locator(".hline button:has-text('\u2715')").count() == 0 and page.locator(".hline .danger").count() == 0)
+    page.screenshot(path="/tmp/shots/09-history-lines.png", full_page=True)
+
+    # correct a price by hand afterwards (the edit panel; the quantity to restore is not edited here)
+    bread = row("Bread")
+    bread.get_by_role("button", name="Correct this line").click()
+    bread.get_by_label("Price", exact=True).fill("13")
+    bread.get_by_role("button", name="Save", exact=True).click()
+    page.wait_for_function("[...document.querySelectorAll('.hline')].find(r => r.querySelector('.hn').textContent === 'Bread').innerText.includes('13.00')")
+    check("editing a unit price recalculates the line total", "13.00" in row("Bread").locator(".hrow").inner_text())
+    row("Bread").get_by_role("button", name="Correct this line").click()
+    row("Bread").get_by_label("Total", exact=True).fill("26")
+    row("Bread").get_by_role("button", name="Save", exact=True).click()
+    page.wait_for_function("[...document.querySelectorAll('.hline')].find(r => r.querySelector('.hn').textContent === 'Bread').innerText.includes('26.00')")
+    check("editing a line total works after the fact", True)
     page.get_by_role("button", name="Edit total").click()
     page.get_by_label("Total", exact=True).fill("60")
     page.get_by_role("button", name="Save", exact=True).click()
@@ -265,6 +281,26 @@ with sync_playwright() as p:
     page.wait_for_selector("details.store")
     check("store created", page.locator("details.store summary:has-text('Supermarket X')").count() == 1)
 
+    # ---- price comparison: choose chains in Manage list, look in the Compare prices tab ----
+    page.locator("details.card > summary", has_text="Compare prices").click()   # the collapsible in Manage list (not the tab)
+    page.locator("details.multi summary").click()
+    page.get_by_label("Shufersal").check()
+    page.get_by_label("Rami Levy").check()
+    page.wait_for_selector(".chips .chip:has-text('Rami Levy')")
+    check("chains are picked from a drop-down of check marks and shown as chips", page.locator(".chips .chip").count() == 2)
+    page.get_by_label("Chain: Supermarket X").select_option("shufersal")
+    page.wait_for_timeout(400)
+    check("a household store can be linked to a chain", page.get_by_label("Chain: Supermarket X").input_value() == "shufersal")
+    page.locator(".tabs button:has-text('Compare prices')").click()
+    page.wait_for_selector(".trip-head")
+    check("compare tab lists each selected chain", page.locator(".trip-head").count() == 2, str(page.locator(".trip-head").count()))
+    page.locator(".trip-head").first.click()
+    page.wait_for_selector("h3:has-text('Not priced here')")
+    check("coverage and the not-priced items are shown", "items priced" in page.locator(".trip-head").first.inner_text() or "No price data yet" in page.locator(".trip-head").first.inner_text())
+    page.screenshot(path="/tmp/shots/09b-compare.png", full_page=True)
+    page.get_by_role("button", name="Manage list").click()
+    page.wait_for_selector("h2:text-is('Add items')")
+
 
     # ---- past items: one compact row, plus item editor ----
     milk_row = page.locator(".past", has_text="Milk").first
@@ -273,7 +309,7 @@ with sync_playwright() as p:
         milk_row.get_by_role("button", name="Add to list").bounding_box(),
         milk_row.get_by_role("button", name="Edit").bounding_box(), milk_row.get_by_role("button", name="Remove from bank").bounding_box()]]
     check("past item is a single line (name, qty, add, edit, remove)", max(centers) - min(centers) < 8 and milk_row.locator(".past-row").bounding_box()["height"] < 80, str(centers))
-    page.screenshot(path="/tmp/shots/05b-past-row.png", clip=milk_row.bounding_box() | {"x": 0, "width": 390})
+    milk_row.screenshot(path="/tmp/shots/05b-past-row.png")
     milk_row.get_by_role("button", name="Edit").click()
     page.locator(".past-edit").get_by_label("Default note").fill("lactose free")
     page.locator(".past-edit").get_by_label("Price (optional)").fill("7.9")
@@ -355,6 +391,18 @@ with sync_playwright() as p:
       return {sw: document.documentElement.scrollWidth, cw: W, out: out.slice(-6)}; }""")
     check("no horizontal overflow (Hebrew manage, phone)", over["sw"] <= over["cw"], str(over))
 
+    page.locator(".tabs button:has-text('היסטוריית הרשימה')").click()
+    page.wait_for_selector(".trip")
+    page.locator(".trip-head").first.click()
+    page.wait_for_selector(".hline")
+    over = page.evaluate("""() => { const W = document.documentElement.clientWidth; return {sw: document.documentElement.scrollWidth, cw: W}; }""")
+    hmids = [bx["y"] + bx["height"] / 2 for bx in [page.locator(".hline").first.locator(sel).bounding_box() for sel in ["input[type=checkbox]", ".hn", "button.iconbtn"]]]
+    check("no horizontal overflow and one-row history lines (Hebrew, phone)", over["sw"] <= over["cw"] and max(hmids) - min(hmids) < 6, str(over) + str(hmids))
+    page.screenshot(path="/tmp/shots/07b-history-he.png", full_page=True)
+    page.locator(".tabs button:has-text('השוואת מחירים')").click()
+    page.wait_for_selector(".trip-head")
+    check("compare tab works in Hebrew", page.locator(".trip-head").count() == 2)
+    page.locator(".tabs button:has-text('קניות')").click()
     page.set_viewport_size({"width": 1100, "height": 800})
     page.get_by_role("button", name="קניות", exact=True).click()
     page.wait_for_selector(".shop-row")

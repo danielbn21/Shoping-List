@@ -5,7 +5,7 @@ export type Me = {
   id: number; username: string; email: string | null; name: string; role: 'admin' | 'user';
   language: Lang; theme: 'system' | 'light' | 'dark'; colorTheme: string; showAddedBy: boolean;
   mustChangePassword: boolean; households: Household[]; canCreateHousehold: boolean;
-  currency: string | null; ocrEnabled: boolean;
+  currency: string | null; ocrEnabled: boolean; compareEnabled: boolean;
   ocr: { engine: 'auto' | 'local' | 'cloud'; provider: 'anthropic' | 'openai' | 'gemini'; model: string; hasKey: boolean };
 };
 export type Cfg = {
@@ -27,7 +27,7 @@ export type Entry = {
   unit: string | null; note: string | null; state: 'open' | 'in_cart'; position: number;
   addedByName: string | null; checkedAt: number | null; checkedByName: string | null;
 };
-export type Store = { id: number; name: string; categoryOrder: number[] };
+export type Store = { id: number; name: string; chain: string | null; categoryOrder: number[] };
 export type Detail = {
   list: { id: number; name: string; color: string; visibility: string; householdId: number; role: 'owner' | 'contributor' | 'viewer' };
   entries: Entry[];
@@ -49,4 +49,14 @@ export type ReceiptInfo = { id: number; ocrStatus: 'none' | 'pending' | 'done' |
 export type TripDetailData = {
   trip: { id: number; listId: number | null; listName: string | null; householdId: number; storeId: number | null; storeName: string | null; shopperName: string | null; finishedAt: number; total: number | null; currency: string | null };
   lines: TripLine[]; receipts: ReceiptInfo[]; stores: { id: number; name: string }[];
+};
+
+export type ChainInfo = { id: string; nameEn: string; nameHe: string; live: boolean };
+export type CompareResult = {
+  chain: string; branchId: string; branchName: string | null; nameEn: string; nameHe: string;
+  total: number | null; priced: number; of: number; missing: { itemId: number; name: string; quantity: number }[]; asOf: number | null; source: 'receipts';
+};
+export type CompareData = {
+  enabled: boolean; canEdit: boolean; chains: ChainInfo[]; selection: { chain: string; branchId: string; branchName: string | null }[];
+  results: CompareResult[]; openCount: number; source: 'receipts';
 };

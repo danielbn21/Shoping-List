@@ -152,7 +152,7 @@ input:focus-visible, select:focus-visible { border-color: var(--focus); outline-
 .banner { background: var(--signal); color: var(--signal-ink); border-radius: var(--radius); padding: 16px; display: grid; gap: 10px; }
 .banner .code { background: rgba(255, 255, 255, 0.55); border-color: var(--ink); color: var(--ink); }
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
-.tabs button { padding: 8px 16px; border-radius: 999px; border: 1.5px solid var(--line); background: transparent; cursor: pointer; font-weight: 700; }
+.tabs button { padding: 8px 13px; border-radius: 999px; border: 1.5px solid var(--line); background: transparent; cursor: pointer; font-weight: 700; }
 .tabs button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
 :root[data-theme="dark"] .tabs button[aria-pressed="true"] { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
 table.log { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
@@ -288,6 +288,14 @@ a.btn.primary { color: var(--brand-ink); }
 .receipt { display: flex; gap: 12px; align-items: flex-start; }
 .hline, .rline { border-bottom: 1px solid var(--line); padding: 8px 0 10px; display: grid; gap: 6px; }
 .hname { font-weight: 700; overflow-wrap: anywhere; }
+/* history line: tick, name, qty, price, total, edit, all on one row */
+.hrow { display: grid; grid-template-columns: 24px minmax(0, 1fr) 26px 48px 54px 34px; align-items: center; gap: 4px; min-height: 44px; }
+.hrow.hhead { min-height: 0; font-size: 0.72rem; padding-top: 2px; }
+.hrow input[type="checkbox"] { width: 22px; height: 22px; margin: 0; }
+.hn { min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; text-align: start; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 40px; }
+.hn.open { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+.hnum { text-align: end; font-size: 0.85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hrow .iconbtn { width: 34px; height: 40px; }
 .hnums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-items: end; }
 .hnums label { display: grid; gap: 2px; font-size: 0.8rem; min-width: 0; }
 .hnums input { min-height: 40px; padding: 4px 8px; width: 100%; border-radius: 8px; border: 1.5px solid var(--line); background: var(--paper); }
@@ -298,3 +306,10 @@ a.btn.primary { color: var(--brand-ink); }
 
 .stale { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap;
   padding: max(10px, env(safe-area-inset-top)) 16px 10px; background: var(--signal); color: var(--signal-ink); font-weight: 600; }
+
+/* ---------- price comparison ---------- */
+ul.plain { margin: 0; padding-inline-start: 18px; display: grid; gap: 2px; }
+details.multi { border: 1.5px solid var(--line); border-radius: 10px; padding: 0 12px; background: var(--paper); }
+details.multi summary { min-height: 44px; display: flex; align-items: center; gap: 6px; font-weight: 700; cursor: pointer; }
+.multi-panel { display: grid; gap: 0; padding-bottom: 8px; }
+.chip-x { border: 0; background: transparent; cursor: pointer; padding: 0 0 0 6px; margin-inline-start: 2px; color: inherit; font-size: 0.8rem; min-width: 24px; min-height: 24px; }

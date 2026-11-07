@@ -5,12 +5,13 @@ import { LIST_COLORS, type Detail, type Entry, type Me } from './types';
 import ShopTab from './ShopTab';
 import ManageTab from './ManageTab';
 import HistoryTab from './HistoryTab';
+import CompareTab from './CompareTab';
 import { effectiveCurrency } from './money';
 import { uploadReceiptPhoto } from './imaging';
 
 export default function ListView({ listId, me, onBack }: { listId: number; me: Me; onBack: () => void }) {
   const [data, setData] = useState<Detail | null>(null);
-  const [tab, setTab] = useState<'shop' | 'manage' | 'history'>('shop'); // opens straight into Shop mode
+  const [tab, setTab] = useState<'shop' | 'manage' | 'history' | 'compare'>('shop'); // opens straight into Shop mode
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -31,6 +32,7 @@ export default function ListView({ listId, me, onBack }: { listId: number; me: M
   const { list } = data;
   const isEditor = list.role !== 'viewer'; // "Shoppers" (viewer) only get the Shop tab
   const color = LIST_COLORS[list.color] ?? LIST_COLORS.green;
+  const canCompare = me.compareEnabled && effectiveCurrency(me) === 'ILS'; // store prices are Israeli; hidden for other currencies
 
   // Optimistic check/uncheck so taps feel instant; rolled back if the server refuses.
   const toggle = async (e: Entry, checked: boolean) => {
@@ -69,12 +71,14 @@ export default function ListView({ listId, me, onBack }: { listId: number; me: M
       <div className="tabs" role="group">
         <button aria-pressed={tab === 'shop'} onClick={() => setTab('shop')}>{t('tabShop')}</button>
         {isEditor && <button aria-pressed={tab === 'manage'} onClick={() => setTab('manage')}>{t('tabManage')}</button>}
+        {canCompare && <button aria-pressed={tab === 'compare'} onClick={() => setTab('compare')}>{t('tabCompare')}</button>}
         <button aria-pressed={tab === 'history'} onClick={() => setTab('history')}>{t('tabHistory')}</button>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
 
       {tab === 'shop' && <ShopTab data={data} me={me} onToggle={toggle} onFinish={finish} />}
       {isEditor && tab === 'manage' && <ManageTab data={data} me={me} reload={load} onDeleted={onBack} />}
+      {canCompare && tab === 'compare' && <CompareTab data={data} />}
       {tab === 'history' && <HistoryTab data={data} me={me} reload={load} />}
     </div>
   );
