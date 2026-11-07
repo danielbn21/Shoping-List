@@ -144,15 +144,30 @@ test('stores can be linked to a chain and unlinked again', async () => {
   await app.close();
 });
 
-test('history is permanent: purchased lines cannot be deleted, and restore keeps the purchased quantities', async () => {
+test('a purchased line can be deleted, and restore keeps the purchased quantities', async () => {
   const { app, call, admin, lid, buy } = await boot();
-  const tripId = await buy(null, [['Milk', 3, 6], ['Eggs', 2, 12]]);
+  const tripId = await buy(null, [['Milk', 3, 6], ['Eggs', 2, 12], ['Rice', 1, 15]]);
   const d = (await call('GET', `/api/trips/${tripId}`, undefined, admin.cookie)).body;
-  assert.ok([404, 405].includes((await call('DELETE', `/api/purchases/${d.lines[0].id}`, undefined, admin.cookie)).status));
-  assert.equal((await call('GET', `/api/trips/${tripId}`, undefined, admin.cookie)).body.lines.length, 2);
-  const r = await call('POST', `/api/trips/${tripId}/restore`, { purchaseIds: d.lines.map((l) => l.id) }, admin.cookie);
+  const rice = d.lines.find((l) => l.name === 'Rice');
+  assert.equal((await call('DELETE', `/api/purchases/${rice.id}`, undefined, admin.cookie)).status, 200);
+  assert.equal((await call('DELETE', `/api/purchases/${rice.id}`, undefined, admin.cookie)).status, 404); // already gone
+  const after = (await call('GET', `/api/trips/${tripId}`, undefined, admin.cookie)).body;
+  assert.deepEqual(after.lines.map((l) => l.name).sort(), ['Eggs', 'Milk']);
+  const r = await call('POST', `/api/trips/${tripId}/restore`, { purchaseIds: after.lines.map((l) => l.id) }, admin.cookie);
   assert.deepEqual([r.body.added, r.body.merged], [2, 0]);
   const list = (await call('GET', `/api/lists/${lid}`, undefined, admin.cookie)).body;
   assert.deepEqual(list.entries.filter((e) => e.state === 'open').map((e) => [e.name, e.quantity]).sort(), [['Eggs', 2], ['Milk', 3]]);
+  await app.close();
+});
+
+test('a user outside the household cannot delete someone else\'s purchased line', async () => {
+  const { app, call, admin, buy } = await boot();
+  const tripId = await buy(null, [['Milk', 1, 6]]);
+  const line = (await call('GET', `/api/trips/${tripId}`, undefined, admin.cookie)).body.lines[0];
+  const stranger = await call('POST', '/api/admin/users', { name: 'eve', username: 'eve' }, admin.cookie); // no household membership
+  const login = await call('POST', '/api/auth/login', { login: 'eve', password: stranger.body.oneTimePassword });
+  await call('POST', '/api/auth/change-password', { currentPassword: stranger.body.oneTimePassword, newPassword: 'new-password-1' }, login.cookie);
+  assert.equal((await call('DELETE', `/api/purchases/${line.id}`, undefined, login.cookie)).status, 404);
+  assert.equal((await call('GET', `/api/trips/${tripId}`, undefined, admin.cookie)).body.lines.length, 1);
   await app.close();
 });

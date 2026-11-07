@@ -2,7 +2,7 @@
 
 Self-hosted, multi-user household shopping list. One Docker container serves both the API and the installable web app.
 
-**Version 1.1.0.** History lines are one row each and permanent (correct them, never delete them). Each list has a **Compare prices** tab: pick supermarket chains in Manage list and see an estimated total and item coverage per chain, based on prices from your own receipts (live chain prices are planned). Since 1.0.0 it also has prices, totals and receipt photos on Finish trip, **List History** (review, correct and restore past trips), receipt scanning (local Tesseract, or your own cloud API key), CSV export of purchases, and CSV backup/restore/move of the item bank. Next: live chain prices (1.2.0), then live sync and offline.
+**Version 1.1.1.** History lines are one row each; correct or delete a line from its ✎ panel. Each list has a **Compare prices** tab: pick supermarket chains in Manage list and see an estimated total and item coverage per chain, based on prices from your own receipts (live chain prices are planned). Since 1.0.0 it also has prices, totals and receipt photos on Finish trip, **List History** (review, correct and restore past trips), receipt scanning (local Tesseract, or your own cloud API key), CSV export of purchases, and CSV backup/restore/move of the item bank. Next: live chain prices (1.2.0), then live sync and offline.
 
 ## Run it
 

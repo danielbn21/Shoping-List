@@ -220,7 +220,7 @@ with sync_playwright() as p:
     boxes = [page.locator(".hline").first.locator(sel).bounding_box() for sel in ["input[type=checkbox]", ".hn", ".hnum >> nth=0", ".hnum >> nth=1", ".hnum >> nth=2", "button[aria-label='Correct this line']"]]
     mids = [bx["y"] + bx["height"] / 2 for bx in boxes]
     check("history line is a single row (phone)", max(mids) - min(mids) < 6 and page.locator(".hline").first.locator(".hrow").bounding_box()["height"] < 60, str(mids))
-    check("history lines have no delete button (history is permanent)", page.locator(".hline button:has-text('\u2715')").count() == 0 and page.locator(".hline .danger").count() == 0)
+    check("no delete button sits on the row itself (it lives in the edit panel)", page.locator(".hline .hrow button:has-text('\u2715')").count() == 0 and page.locator(".hline .hrow .danger").count() == 0)
     page.screenshot(path="/tmp/shots/09-history-lines.png", full_page=True)
 
     # correct a price by hand afterwards (the edit panel; the quantity to restore is not edited here)
@@ -240,6 +240,13 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Save", exact=True).click()
     page.wait_for_selector("strong:has-text('60.00')")
     check("trip total can be corrected after the fact", True)
+
+    # delete a line from the edit panel, after a confirmation (the script's dialog handler accepts it)
+    rice_before = page.locator(".hline").count()
+    row("Rice").get_by_role("button", name="Correct this line").click()
+    row("Rice").get_by_role("button", name="Delete this line").click()
+    page.wait_for_function(f"document.querySelectorAll('.hline').length === {rice_before - 1}")
+    check("a line can be deleted from its edit panel", page.locator(".hn:has-text('Rice')").count() == 0 and page.locator(".hline").count() == rice_before - 1)
 
     # restore the trip into the list
     page.get_by_role("button", name=lambda n: False) if False else None

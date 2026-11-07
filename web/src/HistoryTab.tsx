@@ -178,7 +178,8 @@ function TripDetail({ id, me, listId, onChanged }: { id: number; me: Me; listId:
       <section className="stack-sm">
         <h3>{t('restoreHeading')}</h3>
         <div className="hrow hhead muted" aria-hidden="true"><span /><span /><span className="hnum">{t('qtyShort')}</span><span className="hnum">{t('priceShort')}</span><span className="hnum">{t('lineTotalShort')}</span><span /></div>
-        {d.lines.map((l) => <LineRow key={l.id} line={l} checked={selected.has(l.id)} onCheck={(on) => toggle(l.id, on)} onSave={saveLine} />)}
+        {d.lines.map((l) => <LineRow key={l.id} line={l} checked={selected.has(l.id)} onCheck={(on) => toggle(l.id, on)} onSave={saveLine}
+          onDelete={() => { if (confirm(t('confirmRemoveLine', { name: l.name }))) run(() => api(`/purchases/${l.id}`, { method: 'DELETE' })); }} />)}
         <div className="row">
           <button className="btn primary" disabled={busy || picked.length === 0} onClick={restore}>{t('restoreSelected', { n: picked.length })}</button>
           <button className="btn small" aria-label={picked.length === d.lines.length ? '☐' : '☑'} onClick={() => setSelected(picked.length === d.lines.length ? new Set() : new Set(d.lines.map((l) => l.id)))}>
@@ -193,8 +194,8 @@ function TripDetail({ id, me, listId, onChanged }: { id: number; me: Me; listId:
 const n2 = (v: number | null) => (v === null ? '—' : v.toFixed(2));
 
 // One line per purchased item: tick (for restore), name, quantity bought, unit price, line total, and ✎ to correct them.
-// Nothing here deletes: history is permanent. Restore uses the purchased quantities; adjust them afterwards in Manage list.
-function LineRow({ line, checked, onCheck, onSave }: { line: TripLine; checked: boolean; onCheck: (on: boolean) => void; onSave: (id: number, patch: Record<string, unknown>) => Promise<void> | void }) {
+// Delete lives inside the correction panel (with a confirmation), not on the row. Restore uses the purchased quantities; adjust them afterwards in Manage list.
+function LineRow({ line, checked, onCheck, onSave, onDelete }: { line: TripLine; checked: boolean; onCheck: (on: boolean) => void; onSave: (id: number, patch: Record<string, unknown>) => Promise<void> | void; onDelete: () => void }) {
   const [full, setFull] = useState(false); // tap the name to read all of it
   const [editing, setEditing] = useState(false);
   const [qty, setQty] = useState(fmt(line.quantity));
@@ -238,6 +239,8 @@ function LineRow({ line, checked, onCheck, onSave }: { line: TripLine; checked: 
           <div className="row">
             <button className="btn small primary" type="submit">{t('save')}</button>
             <button className="btn small" type="button" onClick={() => { reset(); setEditing(false); }}>{t('cancel')}</button>
+            <span className="grow" />
+            <button className="btn small danger" type="button" onClick={onDelete}>{t('removeLine')}</button>
           </div>
         </form>
       )}
