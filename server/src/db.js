@@ -268,6 +268,19 @@ CREATE TABLE user_ocr (
   api_key_enc TEXT
 );
 `,
+// 5: price comparison. Household stores can be linked to a supermarket chain; each list remembers which chains (and later branches) to compare.
+`
+ALTER TABLE stores ADD COLUMN chain TEXT;
+CREATE TABLE list_compare_stores (
+  id INTEGER PRIMARY KEY,
+  list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+  chain TEXT NOT NULL,
+  branch_id TEXT NOT NULL DEFAULT '',
+  branch_name TEXT,
+  position INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (list_id, chain, branch_id)
+);
+`,
 ];
 
 export function openDb(dataDir) {

@@ -120,6 +120,7 @@ export default async function adminRoutes(app) {
       setSetting(db, 'session_days', n);
     }
     if (b.ocr_enabled !== undefined) setSetting(db, 'ocr_enabled', !!b.ocr_enabled);
+    if (b.compare_enabled !== undefined) setSetting(db, 'compare_enabled', !!b.compare_enabled);
     if (b.allow_user_households !== undefined) setSetting(db, 'allow_user_households', !!b.allow_user_households);
     if (b.min_password_length !== undefined) {
       const n = Number(b.min_password_length);

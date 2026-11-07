@@ -91,8 +91,8 @@ export default async function listRoutes(app) {
       LEFT JOIN users u ON u.id = e.added_by LEFT JOIN users cu ON cu.id = e.checked_by
       WHERE e.list_id = ? AND e.deleted = 0 ORDER BY e.position, e.id`).all(acc.list.id);
     const categories = db.prepare('SELECT id, name_en, name_he, sort FROM categories WHERE household_id = ? ORDER BY sort, id').all(hid);
-    const stores = db.prepare('SELECT id, name FROM stores WHERE household_id = ? ORDER BY id').all(hid).map((s) => ({
-      id: s.id, name: s.name,
+    const stores = db.prepare('SELECT id, name, chain FROM stores WHERE household_id = ? ORDER BY id').all(hid).map((s) => ({
+      id: s.id, name: s.name, chain: s.chain ?? null,
       categoryOrder: db.prepare('SELECT category_id FROM store_layouts WHERE store_id = ? ORDER BY position').all(s.id).map((r) => r.category_id),
     }));
     const shoppingNow = db.prepare(`SELECT t.shopper_id, t.started_at, u.name FROM trips t LEFT JOIN users u ON u.id = t.shopper_id

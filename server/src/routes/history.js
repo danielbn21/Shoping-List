@@ -117,12 +117,7 @@ export default async function historyRoutes(app) {
     return { ok: true };
   });
 
-  app.delete('/api/purchases/:id', pre, async (req, reply) => {
-    const pa = purchaseAccess(req.user, Number(req.params.id));
-    if (!pa) return bad(reply, 'not_found', 404);
-    db.prepare('DELETE FROM purchase_events WHERE id = ?').run(pa.purchase.id);
-    return { ok: true };
-  });
+  // History is permanent: purchased lines can be corrected but never deleted (only receipt photos can be removed).
 
   // ---------- restore a past trip into a list ----------
   app.post('/api/trips/:id/restore', pre, async (req, reply) => {

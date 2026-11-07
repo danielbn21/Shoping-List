@@ -14,6 +14,7 @@ import shoppingRoutes from './routes/shopping.js';
 import householdRoutes from './routes/households.js';
 import historyRoutes from './routes/history.js';
 import itemsCsvRoutes from './routes/itemsCsv.js';
+import compareRoutes from './routes/compare.js';
 import { makeSecrets } from './secrets.js';
 import { createOcr } from './ocr.js';
 
@@ -54,6 +55,7 @@ export async function buildApp({ dataDir, webDir, logger = true, ocrRun } = {}) 
   await app.register(householdRoutes);
   await app.register(historyRoutes);
   await app.register(itemsCsvRoutes);
+  await app.register(compareRoutes);
 
   if (webDir && fs.existsSync(webDir)) {
     await app.register(fstatic, {
