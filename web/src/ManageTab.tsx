@@ -8,8 +8,8 @@ import { api, ApiError } from './api';
 import { t, errText, getLang, timeAgo } from './i18n';
 import { catName, fmt } from './util';
 import { SortableList, SortableRow, useDndSensors } from './dnd';
-import type { Cat, ChainInfo, CompareData, Detail, Entry, Me, PastItem, Store } from './types';
-import { chainLabel } from './CompareTab';
+import type { Cat, Detail, Entry, Me, PastItem, Store } from './types';
+import CompareSettings from './CompareSettings';
 import { effectiveCurrency } from './money';
 
 type Props = { data: Detail; me: Me; reload: () => Promise<void>; onDeleted: () => void };
@@ -26,7 +26,7 @@ export default function ManageTab({ data, me, reload, onDeleted }: Props) {
       <Collapsible title={t('csvTitle')}><CsvCard data={data} reload={reload} /></Collapsible>
       <Collapsible title={t('categoriesOrder')}><CategoriesCard data={data} reload={reload} /></Collapsible>
       <Collapsible title={t('stores')}><StoresCard data={data} reload={reload} /></Collapsible>
-      {canCompare && <Collapsible title={t('tabCompare')}><CompareCard data={data} reload={reload} /></Collapsible>}
+      {canCompare && <Collapsible title={t('tabCompare')}><CompareSettings data={data} reload={reload} /></Collapsible>}
       {isOwner && <Collapsible title={t('people')}><PeopleCard data={data} /></Collapsible>}
       {isOwner && <Collapsible title={t('listNameLabel')}><ListSettings data={data} reload={reload} onDeleted={onDeleted} /></Collapsible>}
     </div>
@@ -663,79 +663,6 @@ function CsvCard({ data, reload }: { data: Detail; reload: () => Promise<void> }
           </div>
           <div><button className="btn primary" disabled={busy} onClick={() => call(true)}>{t('csvApply')}</button></div>
         </div>
-      )}
-    </>
-  );
-}
-
-/* ---------------- price comparison: which chains to compare this list across ---------------- */
-
-function CompareCard({ data, reload }: { data: Detail; reload: () => Promise<void> }) {
-  const lid = data.list.id;
-  const [c, setC] = useState<CompareData | null>(null);
-  const [error, setError] = useState('');
-  useEffect(() => { api<CompareData>(`/lists/${lid}/compare`).then(setC).catch((e) => setError(errText(e))); }, [lid]);
-  if (!c) return <p className={error ? 'error' : 'muted'}>{error || t('loading')}</p>;
-
-  const chosen = c.selection.map((s) => s.chain);
-  const byId = new Map<string, ChainInfo>(c.chains.map((x) => [x.id, x]));
-  // Optimistic: the tick changes at once, and is put back if the server refuses.
-  const save = async (next: string[]) => {
-    setError('');
-    const before = c;
-    setC({ ...c, selection: next.map((chain) => ({ chain, branchId: '', branchName: null })) });
-    try {
-      const r = await api<{ selection: CompareData['selection'] }>(`/lists/${lid}/compare/stores`, { method: 'PUT', body: { selection: next.map((chain) => ({ chain })) } });
-      setC((cur) => (cur ? { ...cur, selection: r.selection } : cur));
-    } catch (e) { setC(before); setError(errText(e)); }
-  };
-  const toggle = (id: string, on: boolean) => save(on ? [...chosen, id] : chosen.filter((x) => x !== id));
-  const linkStore = async (storeId: number, chain: string) => {
-    setError('');
-    try { await api(`/stores/${storeId}`, { method: 'PATCH', body: { chain: chain || null } }); await reload(); } catch (e) { setError(errText(e)); }
-  };
-
-  return (
-    <>
-      <p className="muted">{t('compareHelp')}</p>
-      {error && <p className="error" role="alert">{error}</p>}
-
-      <details className="multi">
-        <summary>{t('compareChains')} <span className="muted">· {chosen.length ? t('compareChainsCount', { n: chosen.length }) : t('compareChainsNone')}</span></summary>
-        <div className="multi-panel">
-          {c.chains.map((x) => (
-            <label className="check" key={x.id}>
-              <input type="checkbox" checked={chosen.includes(x.id)} onChange={(e) => toggle(x.id, e.target.checked)} />
-              <span>{chainLabel(x)}</span>
-            </label>
-          ))}
-        </div>
-      </details>
-
-      {chosen.length > 0 && (
-        <div className="chips">
-          {chosen.map((id) => (
-            <span className="chip" key={id}>{chainLabel(byId.get(id)!)}
-              <button type="button" className="chip-x" aria-label={t('removeItem')} title={t('removeItem')} onClick={() => toggle(id, false)}>✕</button>
-            </span>
-          ))}
-        </div>
-      )}
-      <p className="muted">{t('compareBranchesSoon')}</p>
-
-      {data.stores.length > 0 && (
-        <>
-          <p className="muted">{t('compareLinkHelp')}</p>
-          {data.stores.map((s) => (
-            <label className="row between" key={s.id}>
-              <span className="grow" style={{ fontWeight: 600 }}>{s.name}</span>
-              <select value={s.chain ?? ''} onChange={(e) => linkStore(s.id, e.target.value)} aria-label={`${t('storeChain')}: ${s.name}`} style={{ maxWidth: '50%' }}>
-                <option value="">{t('storeChainNone')}</option>
-                {c.chains.map((x) => <option key={x.id} value={x.id}>{chainLabel(x)}</option>)}
-              </select>
-            </label>
-          ))}
-        </>
       )}
     </>
   );

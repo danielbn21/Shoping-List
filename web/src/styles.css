@@ -151,10 +151,12 @@ input:focus-visible, select:focus-visible { border-color: var(--focus); outline-
 :root[data-theme="dark"] .code { border-color: var(--signal); }
 .banner { background: var(--signal); color: var(--signal-ink); border-radius: var(--radius); padding: 16px; display: grid; gap: 10px; }
 .banner .code { background: rgba(255, 255, 255, 0.55); border-color: var(--ink); color: var(--ink); }
-.tabs { display: flex; gap: 6px; flex-wrap: wrap; }
-.tabs button { padding: 8px 13px; border-radius: 999px; border: 1.5px solid var(--line); background: transparent; cursor: pointer; font-weight: 700; }
-.tabs button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
-:root[data-theme="dark"] .tabs button[aria-pressed="true"] { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-start; }
+.tabs .menu-panel { inset-inline-start: 0; inset-inline-end: auto; }
+.tabs .menu-panel button[aria-current="page"] { background: var(--paper); }
+.tabs > button, .tabs > .menu > button { padding: 8px 13px; border-radius: 999px; border: 1.5px solid var(--line); background: transparent; cursor: pointer; font-weight: 700; }
+.tabs > button[aria-pressed="true"], .tabs > .menu > button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+:root[data-theme="dark"] .tabs > button[aria-pressed="true"], :root[data-theme="dark"] .tabs > .menu > button[aria-pressed="true"] { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
 table.log { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 table.log td { padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .scroll-x { overflow-x: auto; }
@@ -313,3 +315,6 @@ details.multi { border: 1.5px solid var(--line); border-radius: 10px; padding: 0
 details.multi summary { min-height: 44px; display: flex; align-items: center; gap: 6px; font-weight: 700; cursor: pointer; }
 .multi-panel { display: grid; gap: 0; padding-bottom: 8px; }
 .chip-x { border: 0; background: transparent; cursor: pointer; padding: 0 0 0 6px; margin-inline-start: 2px; color: inherit; font-size: 0.8rem; min-width: 24px; min-height: 24px; }
+.branch-group { display: grid; gap: 2px; padding-block: 4px; }
+.branch-group + .branch-group { border-top: 1px solid var(--line); }
+details.multi input[type="search"] { width: 100%; margin-block: 6px; }

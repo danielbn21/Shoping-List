@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
+import PortalsPanel from './PortalsPanel';
 import { t, errText, timeAgo, type Lang } from './i18n';
 import { CURRENCIES, currencyName, detectCurrency } from './money';
 import type { Cfg, Me } from './types';
@@ -92,6 +93,8 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
 
       <OcrSettings me={me} onChange={onChange} />
 
+      <PortalsSection />
+
       <section className="card stack-sm">
         <h2>{t('devices')}</h2>
         {devices.map((d) => (
@@ -156,5 +159,16 @@ function OcrSettings({ me, onChange }: { me: Me; onChange: () => void }) {
         {error && <span className="error" role="alert">{error}</span>}
       </div>
     </form>
+  );
+}
+
+// Supermarket portals: price-file sources. Mounted only when opened, so visiting Settings never calls the portals.
+function PortalsSection() {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="card" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary style={{ fontWeight: 800, cursor: 'pointer', minHeight: 32, fontSize: '1.1rem' }}>{t('portalsTitle')}</summary>
+      {open && <div style={{ marginTop: 12 }}><PortalsPanel /></div>}
+    </details>
   );
 }

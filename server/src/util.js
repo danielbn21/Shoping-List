@@ -55,6 +55,7 @@ export const SETTING_DEFAULTS = {
   match_strictness: 'normal', // used by duplicate detection (Stage 2)
   allow_user_households: true, // may ordinary users create their own households?
   ocr_enabled: true, // receipt scanning (local Tesseract, or a user's own cloud key)
+  branch_cache_days: 7, // how long the branch directory (from the chains' Stores files) is reused
   compare_enabled: true, // the "Compare prices" tab on lists (Israeli shekel users only)
   smtp: { host: '', port: 587, secure: false, user: '', pass: '', from: '' },
   default_categories: [

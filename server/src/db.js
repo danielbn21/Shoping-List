@@ -281,6 +281,53 @@ CREATE TABLE list_compare_stores (
   UNIQUE (list_id, chain, branch_id)
 );
 `,
+// 6: supermarket portals. A shared (public) directory of branches read from each chain's Stores file, the cities users compare in,
+// per-chain switches, admin-defined extra chains, and the government's city-code list.
+`
+CREATE TABLE portal_branches (
+  chain TEXT NOT NULL,
+  store_id TEXT NOT NULL,           -- without leading zeros, as in the plugin
+  name TEXT NOT NULL,
+  address TEXT NOT NULL DEFAULT '',
+  city_key TEXT NOT NULL DEFAULT '',-- numeric locality code without leading zeros, or the city name when the file gives a name
+  zip TEXT NOT NULL DEFAULT '',
+  banner TEXT NOT NULL DEFAULT '',  -- Shufersal and Carrefour formats (first word of the store name)
+  sub_chain TEXT NOT NULL DEFAULT '',
+  store_type TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (chain, store_id)
+);
+CREATE INDEX idx_portal_branches_city ON portal_branches(city_key);
+CREATE TABLE portal_chain_state (
+  chain TEXT PRIMARY KEY,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  branches_fetched_at INTEGER,
+  stores_file TEXT,
+  branch_count INTEGER NOT NULL DEFAULT 0,
+  last_ok_at INTEGER,
+  last_error TEXT,
+  last_error_at INTEGER
+);
+CREATE TABLE custom_chains (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  portal_user TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE city_names (
+  code TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  source TEXT NOT NULL              -- 'gov' (data.gov.il) or 'seed' (built-in fallback for the biggest cities)
+);
+CREATE TABLE portal_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
+CREATE TABLE list_compare_cities (
+  list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+  city_key TEXT NOT NULL,
+  PRIMARY KEY (list_id, city_key)
+);
+`,
 ];
 
 export function openDb(dataDir) {

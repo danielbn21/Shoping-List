@@ -121,6 +121,11 @@ export default async function adminRoutes(app) {
     }
     if (b.ocr_enabled !== undefined) setSetting(db, 'ocr_enabled', !!b.ocr_enabled);
     if (b.compare_enabled !== undefined) setSetting(db, 'compare_enabled', !!b.compare_enabled);
+    if (b.branch_cache_days !== undefined) {
+      const n = Number(b.branch_cache_days);
+      if (!Number.isInteger(n) || n < 1 || n > 90) return bad(reply, 'invalid_value');
+      setSetting(db, 'branch_cache_days', n);
+    }
     if (b.allow_user_households !== undefined) setSetting(db, 'allow_user_households', !!b.allow_user_households);
     if (b.min_password_length !== undefined) {
       const n = Number(b.min_password_length);

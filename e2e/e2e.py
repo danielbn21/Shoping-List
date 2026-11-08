@@ -1,11 +1,22 @@
 # Browser end-to-end test (needs: pip install playwright && python -m playwright install chromium).
-# Start the app first:  DATA_DIR=/tmp/e2e-data WEB_DIR=web/dist PORT=3998 node server/src/index.js   (fresh data dir each run)
+# Start the fake supermarket portals first (they mimic the three real portals, with trimmed real price files):
+#   node server/test/fakePortals.js 4999            (prints the URLs; this script expects the default 127.0.0.1:4999)
+# Start the app, pointed at them:  DATA_DIR=/tmp/e2e-data WEB_DIR=web/dist PORT=3998 \
+#   PORTAL_URL_SHUFERSAL=http://127.0.0.1:4999/shufersal PORTAL_URL_SHARED=http://127.0.0.1:4999/shared \
+#   PORTAL_URL_CARREFOUR=http://127.0.0.1:4999/carrefour PORTAL_CITIES_URL=http://127.0.0.1:4999/gov/datastore_search \
+#   node server/src/index.js   (fresh data dir each run)
 # Then:  python e2e/e2e.py   (screenshots go to /tmp/shots, which must exist)
 from playwright.sync_api import sync_playwright
 import sys
 
 B = "http://127.0.0.1:3998"
 errors = []
+
+
+def more(page, name):
+    """Open a secondary tab (Compare prices, List history): on a phone they sit in the tab row's drop-down."""
+    page.locator(".tabmenu > button").click()
+    page.get_by_role("menuitem", name=name).click()
 
 
 def check(name, cond, extra=""):
@@ -45,7 +56,7 @@ with sync_playwright() as p:
     check("shop tab has no add/edit controls", page.locator("h2:text-is('Add items')").count() == 0)
 
     # ---- manage: labeled fields ----
-    page.get_by_role("button", name="Manage list").click()
+    page.locator(".tabs button", has_text="Manage list").click()
     page.wait_for_selector("h2:text-is('Add items')")
     labels = [page.locator(f"label.field > span:text-is('{l}')").count() for l in ["Item", "Quantity", "Category", "Note (optional)"]]
     check("labels visible: Item/Quantity/Category/Note", all(c >= 1 for c in labels), str(labels))
@@ -119,7 +130,7 @@ with sync_playwright() as p:
     produce_before = items_in("Produce")
     page.reload()
     page.wait_for_selector("button:has-text('Manage list')")
-    page.get_by_role("button", name="Manage list").click()
+    page.locator(".tabs button", has_text="Manage list").click()
     page.wait_for_selector(".entry.manage")
     check("order and category survive reload", "Dish soap" in items_in("Produce") and items_in("Produce") == produce_before, f"{produce_before} -> {items_in('Produce')}")
 
@@ -152,7 +163,7 @@ with sync_playwright() as p:
     check("finished items leave the list; others stay", page.locator(".shop-row").count() == 2 and page.locator(".shop-row:has-text('Milk')").count() == 0)
 
     # ---- re-add from history ----
-    page.get_by_role("button", name="Manage list").click()
+    page.locator(".tabs button", has_text="Manage list").click()
     page.wait_for_selector("text=Add from past items")
     milk_row = page.locator(".past", has_text="Milk").first
     check("history shows bought count and recency", "1× ·" in milk_row.inner_text(), milk_row.inner_text())
@@ -192,7 +203,15 @@ with sync_playwright() as p:
     page.wait_for_selector("text=Trip finished")
     check("finish with photo reports the receipt saved", page.locator("text=Receipt photo saved").count() == 1)
 
-    page.get_by_role("button", name="List history").click()
+    # the tab row is ONE row on a phone: Shop and Manage list direct, the rest in a drop-down
+    ys = [page.locator(sel).bounding_box() for sel in [".tabs > button:has-text('Shop')", ".tabs > button:has-text('Manage list')", ".tabmenu > button"]]
+    check("tabs stay on one row on a phone (Shop, Manage list, More)", len({round(b["y"]) for b in ys}) == 1 and page.locator(".tabs").bounding_box()["height"] < 60, str(ys))
+    page.locator(".tabmenu > button").click()
+    check("the drop-down lists the secondary tabs", page.get_by_role("menuitem").all_inner_texts() == ["Compare prices", "List history"], str(page.get_by_role("menuitem").all_inner_texts()))
+    page.keyboard.press("Escape")
+    check("Escape closes the tab drop-down", page.get_by_role("menuitem").count() == 0)
+    more(page, "List history")
+    check("the drop-down button shows the open secondary tab", "List history" in page.locator(".tabmenu > button").inner_text() and page.locator(".tabmenu > button").get_attribute("aria-pressed") == "true")
     page.wait_for_selector(".trip")
     head = page.locator(".trip-head").first.inner_text()
     check("history card shows the total in the user's currency (shekel, from the timezone)", "54.10" in head and "\u20aa" in head, head)
@@ -278,7 +297,7 @@ with sync_playwright() as p:
     page.wait_for_selector(".shop-row, .list-card")
     if page.locator(".list-card").count(): page.locator(".list-card").first.click()
     page.wait_for_selector(".shop-row")
-    page.get_by_role("button", name="Manage list").click()
+    page.locator(".tabs button", has_text="Manage list").click()
     page.wait_for_selector("h2:text-is('Add items')")
 
     # ---- store layout ----
@@ -288,24 +307,44 @@ with sync_playwright() as p:
     page.wait_for_selector("details.store")
     check("store created", page.locator("details.store summary:has-text('Supermarket X')").count() == 1)
 
-    # ---- price comparison: choose chains in Manage list, look in the Compare prices tab ----
+    # ---- price comparison: cities, then chains, then branches in Manage list; look in the Compare prices tab ----
     page.locator("details.card > summary", has_text="Compare prices").click()   # the collapsible in Manage list (not the tab)
-    page.locator("details.multi summary").click()
+    page.locator("details.multi summary", has_text="Cities").click()
+    page.get_by_label("\u05e8\u05de\u05ea \u05d2\u05df").check(timeout=20000)      # the directory loads in the background on the first visit
+    page.get_by_label("\u05d1\u05e0\u05d9 \u05d1\u05e8\u05e7").check()
+    page.wait_for_selector(".chips .chip:has-text('\u05e8\u05de\u05ea \u05d2\u05df')")
+    check("cities are picked from a list built from the portals", page.locator(".chips .chip").count() == 2, str(page.locator(".chips").inner_text()))
+    page.locator("details.multi summary", has_text="Chains to compare").click()
     page.get_by_label("Shufersal").check()
     page.get_by_label("Rami Levy").check()
-    page.wait_for_selector(".chips .chip:has-text('Rami Levy')")
-    check("chains are picked from a drop-down of check marks and shown as chips", page.locator(".chips .chip").count() == 2)
+    page.wait_for_selector("details.multi summary:has-text('Rami Levy')")
+    check("each chosen chain gets its own branches panel", page.locator("details.multi summary:has-text('Branches:')").count() == 2, str(page.locator("details.multi summary").all_inner_texts()))
+    check("chains the app cannot read yet are listed but disabled", page.get_by_label("Victory").is_disabled())
+    page.locator("details.multi summary", has_text="Shufersal").first.click()
+    page.get_by_label("\u05e9\u05d5\u05e4\u05e8\u05e1\u05dc \u05e9\u05dc\u05d9 \u05e8\u05de\u05ea \u05d2\u05df").check()    # Shufersal Sheli, Ramat Gan
+    page.wait_for_selector("details.multi summary:has-text('Branches: 1')")
+    check("a branch is chosen from the chain's branches in the chosen cities", page.locator("details.multi summary:has-text('Branches: 1')").count() == 1)
+    check("pharmacies and online shops are not offered as branches", page.get_by_label("BE").count() == 0 and page.get_by_text("\u05d0\u05d5\u05e0\u05dc\u05d9\u05d9\u05df").count() == 0)
+    page.screenshot(path="/tmp/shots/09a-compare-settings.png", full_page=True)
     page.get_by_label("Chain: Supermarket X").select_option("shufersal")
     page.wait_for_timeout(400)
     check("a household store can be linked to a chain", page.get_by_label("Chain: Supermarket X").input_value() == "shufersal")
-    page.locator(".tabs button:has-text('Compare prices')").click()
+    more(page, "Compare prices")
+    page.wait_for_selector(".trip-head")
+    where = page.locator(".card", has_text="Comparing in").first.inner_text()
+    check("compare tab shows which cities this list compares in", "Comparing in:" in where and "\u05e8\u05de\u05ea \u05d2\u05df" in where and "\u05d1\u05e0\u05d9 \u05d1\u05e8\u05e7" in where, where)
+    page.get_by_role("button", name="Change cities and branches").click()
+    page.locator("details.multi summary", has_text="Cities").wait_for()
+    check("Editors can change cities and branches right in the Compare tab", page.get_by_role("button", name="Done", exact=True).count() == 1)
+    page.get_by_role("button", name="Done", exact=True).click()
     page.wait_for_selector(".trip-head")
     check("compare tab lists each selected chain", page.locator(".trip-head").count() == 2, str(page.locator(".trip-head").count()))
+    check("compare tab shows the chosen branches under their chain", "\u05e9\u05d5\u05e4\u05e8\u05e1\u05dc \u05e9\u05dc\u05d9 \u05e8\u05de\u05ea \u05d2\u05df" in page.locator(".trip-head").all_inner_texts()[0] + page.locator(".trip-head").all_inner_texts()[1])
     page.locator(".trip-head").first.click()
     page.wait_for_selector("h3:has-text('Not priced here')")
     check("coverage and the not-priced items are shown", "items priced" in page.locator(".trip-head").first.inner_text() or "No price data yet" in page.locator(".trip-head").first.inner_text())
     page.screenshot(path="/tmp/shots/09b-compare.png", full_page=True)
-    page.get_by_role("button", name="Manage list").click()
+    page.locator(".tabs button", has_text="Manage list").click()
     page.wait_for_selector("h2:text-is('Add items')")
 
 
@@ -379,6 +418,27 @@ with sync_playwright() as p:
     check("deleting the household returns to a single-household home", page.locator(".list-card").count() == 1 and page.locator(".hh").count() == 0,
           f"cards={page.locator('.list-card').count()} hh={page.locator('.hh').count()} main={page.locator('main').inner_text()[:200]!r}")
 
+    # ---- Settings > Supermarket portals (for everyone; admins get the extra controls) ----
+    page.get_by_role("button", name="Settings", exact=True).click()
+    page.locator("details.card > summary", has_text="Supermarket portals").click()
+    page.get_by_role("button", name="Reload all branch lists").click()
+    page.wait_for_function("[...document.querySelectorAll('section.card')].some(s => s.innerText.includes('Stop Market') && s.innerText.includes('Branches: 11'))", timeout=30000)
+    check("admin Portals lists every chain with its branch count", page.locator("section.card", has_text="Stop Market").first.inner_text().count("11") >= 1)
+    check("chains without a reader are marked not supported yet", page.locator("section.card", has_text="Hazi Hinam").first.inner_text().count("Not supported yet") == 1)
+    sm = page.locator("section.card", has_text="Stop Market").first
+    sm.get_by_role("button", name="Test", exact=True).click()
+    sm.get_by_label("Keep the raw files").check()
+    sm.get_by_role("button", name="Run test").click()
+    page.wait_for_selector("text=Read the PriceFull file", timeout=30000)
+    rep = sm.inner_text()
+    check("portal test reports login, Stores and PriceFull steps", all(x in rep for x in ["Reach the portal", "Read the Stores file", "Find a PriceFull file", "Read the PriceFull file"]) and "\u2717" not in rep, rep[:400])
+    check("portal test shows the real file facts (UTF-16 Stores, item counts, units)", "UTF-16 LE (BOM)" in rep and "numeric codes" in rep and "Items:" in rep, rep[:600])
+    page.wait_for_selector("a:has-text('Download')")
+    check("raw files kept by the test are listed for download", page.locator("a:has-text('Download')").count() == 2)
+    page.screenshot(path="/tmp/shots/09c-admin-portals.png", full_page=True)
+    page.get_by_role("button", name="Lists", exact=True).click()
+    page.wait_for_selector(".shop-row, .list-card")
+
     # ---- Hebrew + RTL ----
     page.get_by_role("button", name="Settings").click()
     page.locator("label.field:has(> span:text-is('Language')) select").select_option("he")
@@ -398,7 +458,8 @@ with sync_playwright() as p:
       return {sw: document.documentElement.scrollWidth, cw: W, out: out.slice(-6)}; }""")
     check("no horizontal overflow (Hebrew manage, phone)", over["sw"] <= over["cw"], str(over))
 
-    page.locator(".tabs button:has-text('היסטוריית הרשימה')").click()
+    page.locator(".tabmenu > button").click()
+    page.get_by_role("menuitem", name="היסטוריית הרשימה").click()
     page.wait_for_selector(".trip")
     page.locator(".trip-head").first.click()
     page.wait_for_selector(".hline")
@@ -406,7 +467,8 @@ with sync_playwright() as p:
     hmids = [bx["y"] + bx["height"] / 2 for bx in [page.locator(".hline").first.locator(sel).bounding_box() for sel in ["input[type=checkbox]", ".hn", "button.iconbtn"]]]
     check("no horizontal overflow and one-row history lines (Hebrew, phone)", over["sw"] <= over["cw"] and max(hmids) - min(hmids) < 6, str(over) + str(hmids))
     page.screenshot(path="/tmp/shots/07b-history-he.png", full_page=True)
-    page.locator(".tabs button:has-text('השוואת מחירים')").click()
+    page.locator(".tabmenu > button").click()
+    page.get_by_role("menuitem", name="השוואת מחירים").click()
     page.wait_for_selector(".trip-head")
     check("compare tab works in Hebrew", page.locator(".trip-head").count() == 2)
     page.locator(".tabs button:has-text('קניות')").click()

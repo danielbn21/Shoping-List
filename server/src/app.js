@@ -15,17 +15,33 @@ import householdRoutes from './routes/households.js';
 import historyRoutes from './routes/history.js';
 import itemsCsvRoutes from './routes/itemsCsv.js';
 import compareRoutes from './routes/compare.js';
+import portalRoutes from './routes/portals.js';
+import { createHttp } from './portals/http.js';
+import { createPortals } from './portals/clients.js';
+import { createDirectory } from './portals/directory.js';
 import { makeSecrets } from './secrets.js';
 import { createOcr } from './ocr.js';
 
 export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
-export async function buildApp({ dataDir, webDir, logger = true, ocrRun } = {}) {
+// portalOptions (tests, and the PORTAL_URL_* environment variables) can point the three portal clients and the city list at other servers.
+export async function buildApp({ dataDir, webDir, logger = true, ocrRun, portalOptions = {} } = {}) {
   const app = Fastify({ logger, trustProxy: true, bodyLimit: 1_000_000 });
   app.decorate('db', openDb(dataDir));
   app.decorate('dataDir', dataDir);
   app.decorate('secrets', makeSecrets(dataDir));
   app.decorate('ocr', createOcr(app, ocrRun ? { run: ocrRun } : {}));
+  const env = process.env;
+  const portalHttp = createHttp({ fetchImpl: portalOptions.fetch });
+  const baseUrls = {
+    ...(env.PORTAL_URL_SHUFERSAL && { shufersal: env.PORTAL_URL_SHUFERSAL }), ...(env.PORTAL_URL_SHARED && { shared: env.PORTAL_URL_SHARED }),
+    ...(env.PORTAL_URL_CARREFOUR && { carrefour: env.PORTAL_URL_CARREFOUR }), ...portalOptions.baseUrls,
+  };
+  app.decorate('portals', createPortals({ http: portalHttp, baseUrls }));
+  app.decorate('directory', createDirectory({
+    db: app.db, portals: app.portals, http: portalHttp, citiesUrl: portalOptions.citiesUrl ?? env.PORTAL_CITIES_URL,
+    delayMs: portalOptions.delayMs ?? 400,
+  }));
   await app.register(cookie);
   await app.register(rateLimit, { global: false });
   registerAuth(app);
@@ -56,6 +72,7 @@ export async function buildApp({ dataDir, webDir, logger = true, ocrRun } = {}) 
   await app.register(historyRoutes);
   await app.register(itemsCsvRoutes);
   await app.register(compareRoutes);
+  await app.register(portalRoutes);
 
   if (webDir && fs.existsSync(webDir)) {
     await app.register(fstatic, {

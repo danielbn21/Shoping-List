@@ -1,6 +1,6 @@
 import { audit } from '../util.js';
 import { makeAccess } from '../access.js';
-import { CHAINS } from '../chains.js';
+import { makeChains } from '../chains.js';
 
 const bad = (reply, error, code = 400) => reply.code(code).send({ error });
 const cleanText = (s, max) => (typeof s === 'string' ? s.trim().replace(/\s+/g, ' ').slice(0, max) : '');
@@ -137,7 +137,7 @@ export default async function shoppingRoutes(app) {
     const b = req.body || {};
     let name = s.name, chain = s.chain;
     if (b.name !== undefined) { name = cleanText(b.name, 60); if (!name) return bad(reply, 'invalid_name'); }
-    if (b.chain !== undefined) { chain = b.chain || null; if (chain && !CHAINS[chain]) return bad(reply, 'invalid_value'); }
+    if (b.chain !== undefined) { chain = b.chain || null; if (chain && !makeChains(db).get(chain)?.supported) return bad(reply, 'invalid_value'); }
     db.prepare('UPDATE stores SET name = ?, chain = ? WHERE id = ?').run(name, chain, s.id);
     return { ok: true };
   });

@@ -58,7 +58,8 @@ test('chain selection: editors choose, everyone can look, unknown chains and bra
   assert.deepEqual(put.body.selection.map((s) => s.chain), ['shufersal', 'rami_levy']); // duplicates collapse
 
   assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'nope' }] }, admin.cookie)).status, 400);
-  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'shufersal', branchId: '12' }] }, admin.cookie)).body.error, 'branches_unavailable');
+  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'shufersal', branchId: '12' }] }, admin.cookie)).body.error, 'unknown_branch'); // the branch directory is empty here
+  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'victory' }] }, admin.cookie)).status, 400); // not supported yet
   assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [] }, shopper.cookie)).status, 403); // a Shopper cannot change it
 
   const seen = (await call('GET', `/api/lists/${lid}/compare`, undefined, shopper.cookie)).body; // but can see it
@@ -133,10 +134,11 @@ test('the admin can switch comparison off', async () => {
 
 test('stores can be linked to a chain and unlinked again', async () => {
   const { app, call, admin, lid, addStore } = await boot();
-  const id = await addStore('Local', 'victory');
+  const id = await addStore('Local', 'politzer');
   const stores = () => call('GET', `/api/lists/${lid}`, undefined, admin.cookie).then((r) => r.body.stores);
-  assert.equal((await stores())[0].chain, 'victory');
+  assert.equal((await stores())[0].chain, 'politzer');
   assert.equal((await call('PATCH', `/api/stores/${id}`, { chain: 'bogus' }, admin.cookie)).status, 400);
+  assert.equal((await call('PATCH', `/api/stores/${id}`, { chain: 'victory' }, admin.cookie)).status, 400); // listed, but not supported yet
   await call('PATCH', `/api/stores/${id}`, { chain: null }, admin.cookie);
   assert.equal((await stores())[0].chain, null);
   await call('PATCH', `/api/stores/${id}`, { name: 'Renamed' }, admin.cookie); // renaming still works on its own
