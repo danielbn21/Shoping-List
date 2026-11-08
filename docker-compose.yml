@@ -1,7 +1,7 @@
 services:
   shoplist:
     build: .
-    container_name: shoplist
+    container_name: Deltos-shoplist
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-3000}:3000"   # change with HOST_PORT=3010 if 3000 is taken; point NPM at this port
