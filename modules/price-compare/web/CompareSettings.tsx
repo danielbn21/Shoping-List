@@ -200,7 +200,7 @@ export default function CompareSettings({ data, reload }: { data: Detail; reload
           <p className="muted">{t('compareLinkHelp')}</p>
           {c?.stores.map((s) => (
             <label className="row between" key={s.id}>
-              <span className="grow" style={{ fontWeight: 600 }}>{s.name}</span>
+              <span className="grow" dir="auto" style={{ fontWeight: 600 }}>{s.name}</span>
               <select value={s.chain ?? ''} onChange={(e) => linkStore(s.id, e.target.value)} aria-label={`${t('storeChain')}: ${s.name}`} style={{ maxWidth: '50%' }}>
                 <option value="">{t('storeChainNone')}</option>
                 {usable.map((x) => <option key={x.id} value={x.id}>{chainLabel(x)}</option>)}

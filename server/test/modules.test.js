@@ -366,3 +366,73 @@ test('assets: only a module the user may use is served, and only its declared fi
   assert.equal((await t2.call('GET', '/api/me', undefined, t2.admin.cookie)).body.user.modules[0].web, null);
   await t2.app.close();
 });
+
+/* ---------- language modules (1.3.1) ---------- */
+
+const langZip = (over = {}, strings = { appName: 'Liste de courses', save: 'Enregistrer' }) => Buffer.from(zipSync({
+  'manifest.json': strToU8(JSON.stringify({ id: 'lang-fr', name: 'French', kind: 'language', version: '1.0.0', requires: { core: '>=1.3.1 <2.0.0' }, code: 'fr', nativeName: 'Français', dir: 'ltr', locale: 'fr-FR', strings: 'strings.json', ...over })),
+  'strings.json': strToU8(typeof strings === 'string' ? strings : JSON.stringify(strings)),
+}));
+
+test('a language module is data only: checked on upload, available to everyone once enabled, chosen in Settings', async () => {
+  const t = await boot();
+  const post = (zip) => t.call('POST', '/api/admin/modules/inspect', zip, t.admin.cookie, t.zipHeaders);
+  for (const [over, why] of [[{ code: 'en' }, 'en is built in'], [{ code: 'FR' }, 'bad code'], [{ dir: 'sideways' }, 'bad dir'], [{ nativeName: '' }, 'no name'], [{ server: 'server/index.js' }, 'code in a language module'], [{ strings: undefined }, 'no strings file']]) {
+    assert.equal((await post(langZip(over))).body.error, 'manifest_invalid', why);
+  }
+  assert.equal((await post(langZip({}, '{ not json'))).body.error, 'manifest_invalid');
+  assert.equal((await post(langZip({}, { a: 5 }))).body.error, 'manifest_invalid'); // values must be text
+  assert.equal((await t.call('PATCH', '/api/me', { language: 'fr' }, t.admin.cookie)).body.error, 'invalid_value'); // not installed yet
+
+  assert.equal((await t.upload(langZip())).status, 200);
+  assert.equal((await t.call('POST', '/api/admin/modules/lang-fr/enable', {}, t.admin.cookie)).status, 200);
+  const t2 = await t.restart();
+  const dana = await t2.mkUser('dana');
+  const me = (await t2.call('GET', '/api/me', undefined, dana.cookie)).body.user;
+  const fr = me.modules.find((m) => m.id === 'lang-fr');
+  assert.deepEqual([fr.kind, fr.on, fr.lang, fr.web], ['language', true, { code: 'fr', nativeName: 'Français', dir: 'ltr', locale: 'fr-FR' }, null]); // listed for everyone, no grant needed
+  const strings = await t2.app.inject({ method: 'GET', url: fr.strings, headers: { cookie: dana.cookie } });
+  assert.equal(strings.statusCode, 200); assert.equal(JSON.parse(strings.body).save, 'Enregistrer');
+  assert.equal((await t2.call('PUT', '/api/modules/lang-fr/me', { on: false }, dana.cookie)).status, 404); // no personal switch for languages
+  assert.equal((await t2.call('PATCH', '/api/me', { language: 'fr' }, dana.cookie)).body.user.language, 'fr');
+  assert.equal((await t2.call('PATCH', '/api/me', { language: 'xx' }, dana.cookie)).status, 400);
+
+  // new users may be created in an installed language; an unknown one falls back to English
+  const mk = async (language, username) => (await t2.call('POST', '/api/admin/users', { name: username, username, language }, t2.admin.cookie)).status;
+  assert.equal(await mk('fr', 'luc'), 200); assert.equal(await mk('zz', 'zed'), 200);
+  assert.deepEqual(t2.app.db.prepare("SELECT username, language FROM users WHERE username IN ('luc','zed') ORDER BY username").all().map((r) => [r.username, r.language]), [['luc', 'fr'], ['zed', 'en']]);
+
+  // switching the module off: the language disappears from the list, new choices are refused, existing users keep their saved value (the app shows English)
+  await t2.call('POST', '/api/admin/modules/lang-fr/disable', {}, t2.admin.cookie);
+  assert.ok(!(await t2.call('GET', '/api/me', undefined, dana.cookie)).body.user.modules.some((m) => m.id === 'lang-fr'));
+  assert.equal((await t2.call('GET', fr.strings, undefined, dana.cookie)).status, 404);
+  assert.equal((await t2.call('PATCH', '/api/me', { language: 'fr' }, t2.admin.cookie)).status, 400);
+  assert.equal((await t2.call('GET', '/api/me', undefined, dana.cookie)).body.user.language, 'fr');
+  await t2.app.close();
+});
+
+/* ---------- interface preferences (1.3.1) ---------- */
+
+test('preferences: Manage list order and open sections follow the user, merged and validated', async () => {
+  const t = await boot();
+  const put = (b, c = t.admin.cookie) => t.call('PUT', '/api/me/prefs', b, c);
+  assert.deepEqual((await t.call('GET', '/api/me', undefined, t.admin.cookie)).body.user.prefs, {});
+  let r = await put({ manageOrder: ['stores', 'add', 'price-compare:compare'], manageOpen: { add: false, csv: true } });
+  assert.deepEqual(r.body.user.prefs, { manageOrder: ['stores', 'add', 'price-compare:compare'], manageOpen: { add: false, csv: true } });
+  r = await put({ manageOpen: { stores: true } }); // sections are merged, not replaced
+  assert.deepEqual(r.body.user.prefs.manageOpen, { add: false, csv: true, stores: true });
+  assert.deepEqual(r.body.user.prefs.manageOrder, ['stores', 'add', 'price-compare:compare']);
+  const login = await t.call('POST', '/api/auth/login', { login: 'admin', password: 'correct-horse' });
+  assert.deepEqual(login.body.user.prefs.manageOrder[0], 'stores'); // follows the user to another device
+  for (const bad of [{ manageOrder: 'add' }, { manageOrder: ['add', 'add'] }, { manageOrder: ['has space'] }, { manageOrder: [1] }, { manageOrder: Array.from({ length: 41 }, (_, i) => `s${i}`) },
+    { manageOpen: { add: 'yes' } }, { manageOpen: [] }, { manageOpen: { '': true } }]) {
+    assert.equal((await put(bad)).status, 400, JSON.stringify(bad).slice(0, 60));
+  }
+  r = await put({ manageOrder: null });  // reset to the default order
+  assert.equal(r.body.user.prefs.manageOrder, undefined);
+  assert.equal(r.body.user.prefs.manageOpen.csv, true);
+  const dana = await t.mkUser('dana');
+  assert.deepEqual((await t.call('GET', '/api/me', undefined, dana.cookie)).body.user.prefs, {}); // per user
+  assert.equal((await t.call('PUT', '/api/me/prefs', { manageOpen: { x: true } })).status, 401);
+  await t.app.close();
+});

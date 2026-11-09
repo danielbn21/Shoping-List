@@ -2,6 +2,8 @@
 
 Self-hosted, multi-user household shopping list. One Docker container serves both the API and the installable web app.
 
+**Version 1.3.1.** *Manage list:* every section is collapsible, the order is chosen in Settings > Manage list layout, and both the order and which sections are open follow you across devices. *Language:* the login screen no longer has a language switch; the app starts in English and the language is chosen only in Settings. **Hebrew is now a language module** (`modules/lang-he`); other languages can be added the same way (see `docs/MODULES.md`). *Content direction:* Hebrew list, item, store, category and household names are right-to-left even in the English interface. Migration 8 adds per-user interface preferences.
+
 **Version 1.3.0: modules.** Receipt reading and price comparison (with the supermarket portals) are now **modules** with their own databases, versions and on/off switches. Admin > Modules installs a module from a zip (after showing its name, version and hash), switches it on or off, chooses who may use it, rolls back and uninstalls; changes take effect when an admin presses **Restart server**. Each user can switch a granted module off for themselves in Settings > Modules. Modules add screens to named slots (a list tab, a Manage section, a Settings section, an Admin section). See `docs/MODULES.md`. The core no longer holds the portal or receipt-reading code, and migration 7 drops the old portal tables, the store-to-chain column and the per-user OCR table (the portal and OCR data now live in `data/modules/<id>/`; settings made in 1.2.1 are not carried over).
 
 **Earlier:** History lines are one row each; correct or delete a line from its ✎ panel. Each list has a **Compare prices** tab: pick supermarket chains in Manage list and see an estimated total and item coverage per chain, based on prices from your own receipts (live chain prices are planned). Since 1.0.0 it also has prices, totals and receipt photos on Finish trip, **List History** (review, correct and restore past trips), receipt scanning (local Tesseract, or your own cloud API key), CSV export of purchases, and CSV backup/restore/move of the item bank. Next: live chain prices (1.3.0), then live sync and offline.
@@ -56,6 +58,7 @@ server/src/routes/        auth.js, admin.js, lists.js (lists, entries, bank, cat
 server/src/modules/       module system: manifest checks, zip install, loader, events, core read API
 server/src/receipts.js    receipt queue (a 'receipt-reader' module does the reading)
 modules/receipt-ocr/      Tesseract + cloud engines, receipt text parser (handles Hebrew visual order)
+modules/lang-he/          Hebrew interface text (a language module)
 modules/price-compare/    supermarket portals, branch directory, compare prices (server + browser code)
 scripts/build-modules.mjs compiles the modules' browser code and packs the zips
 server/src/secrets.js     encrypts stored API keys (key file: data/secret.key)

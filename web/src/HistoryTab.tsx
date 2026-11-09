@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
-import { t, errText, getLang } from './i18n';
+import { t, errText, getLang, dateLocale } from './i18n';
 import { effectiveCurrency, formatMoney } from './money';
 import { uploadReceiptPhoto } from './imaging';
 import { fmt } from './util';
 import type { Detail, Me, TripDetailData, TripLine, TripSummary } from './types';
 
-const when = (ms: number) => new Date(ms).toLocaleString(getLang() === 'he' ? 'he-IL' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+const when = (ms: number) => new Date(ms).toLocaleString(dateLocale(), { dateStyle: 'medium', timeStyle: 'short' });
 const num = (s: string) => (s.trim() === '' ? null : Number(s));
 
 // Everyone on the list can look back, fix prices, attach receipts and restore past trips.
@@ -57,7 +57,7 @@ export default function HistoryTab({ data, me, reload }: { data: Detail; me: Me;
             <button className="trip-head" aria-expanded={open} onClick={() => setOpenId(open ? null : tr.id)}>
               <span className="grow">
                 <strong>{when(tr.finishedAt)}</strong>
-                <span className="muted" style={{ display: 'block' }}>
+                <span className="muted" dir="auto" style={{ display: 'block' }}>
                   {[tr.storeName, tr.shopperName ? t('shoppedBy', { name: tr.shopperName }) : null, t('itemCount', { n: tr.itemCount })].filter(Boolean).join(' · ')}
                 </span>
               </span>
@@ -220,7 +220,7 @@ function LineRow({ line, checked, onCheck, onSave, onDelete }: { line: TripLine;
     <div className="hline">
       <div className="hrow">
         <input type="checkbox" checked={checked} onChange={(e) => onCheck(e.target.checked)} aria-label={line.name} />
-        <button type="button" className={`hn${full ? ' open' : ''}`} title={line.name} aria-expanded={full} onClick={() => setFull(!full)}>{line.name}</button>
+        <button type="button" className={`hn${full ? ' open' : ''}`} title={line.name} aria-expanded={full} onClick={() => setFull(!full)} dir="auto">{line.name}</button>
         <span className="hnum" dir="ltr">{fmt(line.quantity)}</span>
         <span className="hnum" dir="ltr">{n2(line.unitPrice)}</span>
         <strong className="hnum" dir="ltr">{n2(line.lineTotal)}</strong>
@@ -308,7 +308,7 @@ function ReceiptReview({ receiptId, currency, onClose, onApplied }: { receiptId:
         <div className="rline" key={l.key}>
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <input type="checkbox" checked={l.include} onChange={(e) => set(l.key, { include: e.target.checked })} aria-label={t('useLine')} style={{ width: 22, height: 22, accentColor: 'var(--brand)', flex: 'none' }} />
-            <input type="text" className="grow" value={l.name} aria-label={t('itemLabel')} onChange={(e) => set(l.key, { name: e.target.value, match: null })} />
+            <input type="text" dir="auto" className="grow" value={l.name} aria-label={t('itemLabel')} onChange={(e) => set(l.key, { name: e.target.value, match: null })} />
           </div>
           <div className="hnums">
             <label><span className="muted">{t('qtyShort')}</span>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
-import { t, errText, getLang } from './i18n';
+import { t, errText, getLang, isRtl } from './i18n';
 import type { Me } from './types';
 
 type Member = { id: number; name: string; username: string; role: 'owner' | 'member' };
@@ -47,8 +47,8 @@ export default function HouseholdScreen({ me, hid, onBack, onChanged }: { me: Me
   return (
     <div className="stack">
       <div className="listhead">
-        <button className="iconbtn" onClick={onBack} aria-label={t('back')} title={t('back')}>{getLang() === 'he' ? '→' : '←'}</button>
-        <h1>{h.name}</h1>
+        <button className="iconbtn" onClick={onBack} aria-label={t('back')} title={t('back')}>{isRtl() ? '→' : '←'}</button>
+        <h1 dir="auto">{h.name}</h1>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
 
@@ -56,7 +56,7 @@ export default function HouseholdScreen({ me, hid, onBack, onChanged }: { me: Me
         <form className="card stack-sm" onSubmit={rename}>
           <h2>{t('householdNameLabel')}</h2>
           <div className="inline-form">
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} aria-label={t('householdNameLabel')} required />
+            <input type="text" dir="auto" value={name} onChange={(e) => setName(e.target.value)} aria-label={t('householdNameLabel')} required />
             <button className="btn small primary" type="submit">{t('save')}</button>
           </div>
           {saved && <p className="ok" role="status">{t('saved')}</p>}
@@ -68,7 +68,7 @@ export default function HouseholdScreen({ me, hid, onBack, onChanged }: { me: Me
         {members.map((m) => (
           <div className="row between" key={m.id} style={{ flexWrap: 'nowrap' }}>
             <div className="grow" style={{ minWidth: 0 }}>
-              <strong>{m.name}</strong> <span className="muted" dir="ltr">@{m.username}</span>
+              <strong dir="auto">{m.name}</strong> <span className="muted" dir="ltr">@{m.username}</span>
             </div>
             {owner ? (
               <>
@@ -139,7 +139,7 @@ export default function HouseholdScreen({ me, hid, onBack, onChanged }: { me: Me
             <summary style={{ fontWeight: 700, cursor: 'pointer', minHeight: 36 }}>{t('deleteHousehold')}</summary>
             <div className="stack-sm" style={{ marginTop: 8 }}>
               <p className="muted">{t('deleteHouseholdHelp')}</p>
-              <input type="text" value={confirmName} onChange={(e) => setConfirmName(e.target.value)} placeholder={t('typeNameToConfirm')} aria-label={t('typeNameToConfirm')} />
+              <input type="text" dir="auto" value={confirmName} onChange={(e) => setConfirmName(e.target.value)} placeholder={t('typeNameToConfirm')} aria-label={t('typeNameToConfirm')} />
               <div><button className="btn danger" disabled={!confirmName.trim()} onClick={() => run(() => api(`/households/${hid}`, { method: 'DELETE', body: { confirmName } }), onBack, true)}>{t('deleteHousehold')}</button></div>
             </div>
           </details>

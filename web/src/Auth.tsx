@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { api } from './api';
-import { t, errText, type Lang } from './i18n';
+import { t, errText } from './i18n';
 import type { Cfg } from './types';
 
 type Mode = 'login' | 'register' | 'forgot' | 'reset' | 'setup';
@@ -19,7 +19,7 @@ function Field(props: { label: string; type?: string; value: string; onChange: (
   );
 }
 
-export function AuthScreens({ cfg, lang, setLang, onDone }: { cfg: Cfg; lang: Lang; setLang: (l: Lang) => void; onDone: () => void }) {
+export function AuthScreens({ cfg, onDone }: { cfg: Cfg; onDone: () => void }) {
   const params = new URLSearchParams(window.location.search);
   const path = window.location.pathname;
   const initial: Mode = cfg.needsSetup ? 'setup' : path === '/reset' && params.get('token') ? 'reset' : path === '/join' && params.get('code') ? 'register' : 'login';
@@ -41,10 +41,10 @@ export function AuthScreens({ cfg, lang, setLang, onDone }: { cfg: Cfg; lang: La
         await api('/auth/login', { method: 'POST', body: { login: f.login, password: f.password } });
         finish();
       } else if (mode === 'setup') {
-        await api('/setup', { method: 'POST', body: { name: f.name, username: f.username, email: f.email || undefined, password: f.password, householdName: f.household || undefined, language: lang } });
+        await api('/setup', { method: 'POST', body: { name: f.name, username: f.username, email: f.email || undefined, password: f.password, householdName: f.household || undefined } });
         finish();
       } else if (mode === 'register') {
-        await api('/auth/register', { method: 'POST', body: { name: f.name, username: f.username, email: f.email || undefined, password: f.password, inviteCode: f.code || undefined, language: lang } });
+        await api('/auth/register', { method: 'POST', body: { name: f.name, username: f.username, email: f.email || undefined, password: f.password, inviteCode: f.code || undefined } });
         finish();
       } else if (mode === 'forgot') {
         await api('/auth/forgot', { method: 'POST', body: { login: f.login } });
@@ -86,9 +86,6 @@ export function AuthScreens({ cfg, lang, setLang, onDone }: { cfg: Cfg; lang: La
   return (
     <div className="auth">
       <div className="auth-box">
-        <button className="btn link langswitch" onClick={() => setLang(lang === 'he' ? 'en' : 'he')} lang={lang === 'he' ? 'en' : 'he'}>
-          {lang === 'he' ? 'English' : 'עברית'}
-        </button>
         <div className="pricetag">{t('appName')}</div>
         <form className="card stack" onSubmit={submit}>
           <div>

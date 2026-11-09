@@ -50,7 +50,7 @@ export default async function adminRoutes(app) {
     if (!generated && password.length < getSetting(db, 'min_password_length')) return bad(reply, 'password_short');
     const hash = await hashPassword(password);
     const id = db.transaction(() => {
-      const uid = createUser(db, { username: b.username, name, email: b.email, passwordHash: hash, role, mustChange: 1, language: b.language === 'he' ? 'he' : 'en' });
+      const uid = createUser(db, { username: b.username, name, email: b.email, passwordHash: hash, role, mustChange: 1, language: app.modules.languageCodes().includes(b.language) ? b.language : 'en' });
       if (b.householdId) {
         if (!db.prepare('SELECT 1 FROM households WHERE id = ?').get(Number(b.householdId))) throw Object.assign(new Error('household_not_found'), { code: 'household_not_found' });
         db.prepare("INSERT INTO household_members(household_id, user_id, role) VALUES (?,?,'member')").run(Number(b.householdId), uid);

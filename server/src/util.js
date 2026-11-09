@@ -119,6 +119,7 @@ export function userPayload(db, u) {
     households,
     canCreateHousehold: u.role === 'admin' || !!getSetting(db, 'allow_user_households'),
     currency: u.currency ?? null,
+    prefs: (() => { try { return JSON.parse(u.ui_prefs || '{}'); } catch { return {}; } })(),
   };
 }
 

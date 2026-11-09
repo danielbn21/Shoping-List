@@ -130,7 +130,7 @@ export default function ModulesAdmin({ me }: { me: Me }) {
             <div className="stack-sm">
               <p className="muted" style={{ margin: 0 }}>{t('modAccessHelp')}</p>
               {users.map((u) => (
-                <label className="check" key={u.id}><input type="checkbox" checked={u.granted} onChange={(e) => grant(m.id, u.id, e.target.checked)} /><span>{u.name} <span className="muted" dir="ltr">@{u.username}</span></span></label>
+                <label className="check" key={u.id}><input type="checkbox" checked={u.granted} onChange={(e) => grant(m.id, u.id, e.target.checked)} /><span><bdi>{u.name}</bdi> <span className="muted" dir="ltr">@{u.username}</span></span></label>
               ))}
             </div>
           )}

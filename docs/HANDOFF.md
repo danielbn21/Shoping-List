@@ -1,6 +1,6 @@
 # Shopping List PWA: Handoff
 
-*State: version 1.3.0 (1.0.0 was the first tagged release; earlier internal builds were numbered Stage 1 to 3.2.1), development paused. Written so a new developer, a fresh chat or Claude Code can continue without the earlier conversation. Keep this file current: update section 3 and section 5 at the end of every working session.*
+*State: version 1.3.1 (1.0.0 was the first tagged release; earlier internal builds were numbered Stage 1 to 3.2.1), development paused. Written so a new developer, a fresh chat or Claude Code can continue without the earlier conversation. Keep this file current: update section 3 and section 5 at the end of every working session.*
 
 ## 1. What this is
 
@@ -52,9 +52,14 @@ A **self-hosted, multi-user household shopping list PWA** for Android, iPhone, W
 - The database may be wiped while the system is in testing (owner's decision), so migration 7 simply dropped the old portal tables, `stores.chain` and `user_ocr`.
 - Core keeps the receipt photo, the receipt queue and the review screen; the `receipt-reader` module only turns an image into lines and a total.
 
+### UI decisions built in 1.3.1 (owner, 9 Nov 2026)
+- **Manage list:** every section collapsible (including Add items, On this list, From history, which used to be always open and still start open); the **order is chosen in Settings** (up/down arrows, "Reset to the default order"), stored per user on the server together with which sections are open; module sections take part under `<moduleId>:<slotId>`; sections added later appear at the end of a saved order.
+- **Language:** one place only, Settings; no switch on the login screen; English until the signed-in user's language module is loaded (language modules load before the first screen, so no flash); no browser-language detection. **Hebrew is a language module** (decided: pull it out now). Hebrew UI work stays on hold; **Hebrew and RTL support for content stays** system-wide.
+- **Version line** in Settings: unchanged (owner: leave it).
+
 ## 3. Current status
 
-**Latest build:** 1.3.0 (`server/package.json` and `web/package.json` must always carry the same version; the app compares them and shows an "Update now" banner when a device still runs old files).
+**Latest build:** 1.3.1 (`server/package.json` and `web/package.json` must always carry the same version; the app compares them and shows an "Update now" banner when a device still runs old files).
 
 | Build | Contents |
 |---|---|
@@ -69,17 +74,19 @@ A **self-hosted, multi-user household shopping list PWA** for Android, iPhone, W
 | 1.2.0 | **Supermarket portals, no prices yet:** portal clients for the three real portal types (Shufersal, the shared publishedprices portal, Carrefour) covering twelve chains (Stop Market first); a shared branch directory read from each chain's Stores file; city, chain and branch pickers in Manage list; admin **Portals** screen (test each chain, save raw files, switch chains off, add a chain by portal username); migration 6 |
 | 1.2.1 | Cities, chains and branches stored per list; portals open to every signed-in user (rate limited for non-admins); store-number match fix (`storeOfName()`); more unit spellings; narrow-screen `TabMenu` |
 | 1.3.0 | **Modular core.** Module system (manifest, zip install after a confirmation showing name, version and SHA-256, loader, events, core read API, per-module SQLite databases, capabilities, slots, quarantine, rollback, uninstall, per-user access and switch, admin **Restart server** button). Receipt reading (`receipt-ocr`) and the portals plus price comparison (`price-compare`) moved out of the core into bundled modules; migration 7. Behaviour is unchanged; settings made in 1.2.1 are not carried over (the owner agreed the data may be wiped) |
+| 1.3.1 | **UI tweaks and language modules.** Manage list sections are all collapsible; their order is set in Settings > Manage list layout; order and open/closed state are stored per user on the server (migration 8, `users.ui_prefs`, `PUT /api/me/prefs`). Login screen language switch removed; English until the user's language loads; language chosen only in Settings. `Lang` is an open string; **Hebrew moved into the `lang-he` language module** (`kind: language`, data only, `strings.json` covers core and module keys); module string files are English only; missing keys fall back to English. `dir="auto"` on user content and text inputs so Hebrew content is RTL in the English UI |
 
 **Repository layout**
 ```
 server/src/   db.js (migrations 1-7)  util.js  auth.js  access.js  match.js  csv.js  secrets.js  entries.js  mail.js  receipts.js (receipt queue)
               modules/ (manifest semver zip events coreApi manager)   routes/  auth admin lists shopping households history itemsCsv modules
 server/test/  node:test suites, fixtures with real Tesseract output, modules.test.js + fixtures/sample-module
-modules/      receipt-ocr/    manifest.json, server/ (ocr.js, index.js), web/ (OcrSettings), i18n.json, test/
+modules/      lang-he/        manifest.json (kind language), strings.json (all Hebrew text, core and module keys)
+              receipt-ocr/    manifest.json, server/ (ocr.js, index.js), web/ (OcrSettings), i18n.json, test/
               price-compare/  manifest.json, server/ (index.js, compare.js, portalRoutes.js, chains.js, portals/*), web/ (CompareTab CompareSettings PortalsPanel AdminSettings), i18n.json, test/ (fakePortals.js, fixtures/portal)
 scripts/      set-version.sh  build-modules.mjs (compiles modules' browser code, packs dist-modules/<id>-<version>.zip)
 web/src/      App Auth Home HouseholdScreen ListView ShopTab ManageTab HistoryTab Settings Admin Menu VersionGuard TabMenu
-              host.ts slots.ts modules.ts ModulesAdmin ModulesUser ModuleSections  dnd i18n money imaging types util
+              host.ts slots.ts modules.ts prefs.ts Section ManageLayout ModulesAdmin ModulesUser ModuleSections  dnd i18n money imaging types util
 e2e/          e2e.py (real browser, real OCR)  make_receipts.py  upgrade_rehearsal.py
 tests/        test-update.sh (tests update.sh against a fake docker)
 docs/         HANDOFF.md (this file)  MODULES.md (module authoring guide)
@@ -89,7 +96,7 @@ update.sh  Dockerfile  docker-entrypoint.sh  docker-compose.yml  .env.example  R
 
 **Environment:** `PORT`, `DATA_DIR`, `WEB_DIR`, `OCR_LANGS`, `MODULES_DIR` (optional: where bundled modules are looked for; default `/app/modules` in the image) (container); `PORTAL_URL_*`/`PORTAL_CITIES_URL` are read by the price-compare module (tests); `HOST_PORT`, `TZ` (compose, via `.env`).
 
-**Verified:** 81 backend tests (66 carried over from 1.2.1 and adapted, 15 new in `server/test/modules.test.js`) (including the three portal protocols against a local fake, `server/test/fakePortals.js`, with trimmed real price files as fixtures); 96 real-browser checks (84 before plus 12 for modules) (Chromium, phone viewport, timezone Asia/Jerusalem) including drag and drop, Hebrew RTL, CSV round trips and a photographed receipt read by real Tesseract, one-row history lines in English and Hebrew, deleting a line from its edit panel, the compare flow with the city, chain and branch pickers, and the admin Portals screen; a database upgrade from 1.0.0 (schema 4) to 1.2.0 (schema 6) keeps existing data; `update.sh` (26 checks against a real git remote and a fake docker: update, rollback, failed build, unhealthy start, dirty tree, tags, dry run).
+**Verified:** 83 backend tests (66 carried over from 1.2.1 and adapted, 17 in `server/test/modules.test.js`: module system, language modules, preferences) (including the three portal protocols against a local fake, `server/test/fakePortals.js`, with trimmed real price files as fixtures); 107 real-browser checks (84 before, 12 for modules, 11 for layout, language and direction) (Chromium, phone viewport, timezone Asia/Jerusalem) including drag and drop, Hebrew RTL, CSV round trips and a photographed receipt read by real Tesseract, one-row history lines in English and Hebrew, deleting a line from its edit panel, the compare flow with the city, chain and branch pickers, and the admin Portals screen; a database upgrade from 1.0.0 (schema 4) to 1.2.0 (schema 6) keeps existing data; `update.sh` (26 checks against a real git remote and a fake docker: update, rollback, failed build, unhealthy start, dirty tree, tags, dry run).
 
 **Not verified:** **any live portal** (the development sandbox cannot reach the retailer portals; the owner ran the Portals test live for Stop Market and Rami Levy, see below), the real Stores files of Shufersal, Rami Levy and Carrefour (only Stop Market's real Stores file was seen), the real data.gov.il city list; the real Docker build and a real container start (no Docker in the development sandbox); touch drag, camera capture and HEIC photos on real phones; OCR on real, crumpled receipts (only generated ones); cloud OCR against the live providers (tested only with a simulated network); the SMTP reset email against a real mail server; `update.sh` against a real Docker.
 
@@ -169,7 +176,7 @@ In List history, a button such as "Add a trip I made without a list" for shoppin
 5. **Price caching rule (owner, 8 Nov 2026):** a price stays cached **until a newer value arrives at the next portal fetch**; an item that did not change or is missing from the new file **keeps its price**. So merge each new `PriceFull` into the stored prices (never delete absent items), keep per item the date of the file it was last seen in and its `PriceUpdateTime`, show "price as of …", and flag prices not seen for a long time (proposed 60 days, flag only). The admin cache duration means **how often the portal is fetched** (lazy: first comparison after the interval or Refresh prices; proposed 24 h), not when a price expires. The completeness check only keeps a truncated file from being logged as a good fetch.
 
 ### 5.1b Next releases (agreed order, 8 Nov 2026)
-1. **1.3.1 UI tweaks:** Manage list sections collapsible and **ordered in Settings** (per user, stored on the server; open/closed remembered; up/down arrows; module sections join the list); **language chosen only in Settings** (remove the login-screen switch; English UI first, always English before login; new strings need English text only, Hebrew falls back to English; Hebrew UI work on hold); keep Hebrew and **right-to-left for content** (lists, items, households, stores, categories): a `dir="auto"` pass is needed because direction is currently set once from the UI language and only one element uses `dir="auto"`; **language modules** (`Lang` becomes an open string, Hebrew moves into the first language module). The version line in Settings stays as it is.
+1. **1.3.1 UI tweaks: DONE (see section 3 and the decisions above).** Original scope: Manage list sections collapsible and **ordered in Settings** (per user, stored on the server; open/closed remembered; up/down arrows; module sections join the list); **language chosen only in Settings** (remove the login-screen switch; English UI first, always English before login; new strings need English text only, Hebrew falls back to English; Hebrew UI work on hold); keep Hebrew and **right-to-left for content** (lists, items, households, stores, categories): a `dir="auto"` pass is needed because direction is currently set once from the UI language and only one element uses `dir="auto"`; **language modules** (`Lang` becomes an open string, Hebrew moves into the first language module). The version line in Settings stays as it is.
 2. **1.4.0** prices and matching (above).
 3. **1.5.0** trips (item B).
 4. Then 5.2.
@@ -185,7 +192,7 @@ In List history, a button such as "Add a trip I made without a list" for shoppin
 8. **Usage and spending views** (charts from purchase history, budget).
 
 ### 5.3 Validation and housekeeping
-1. Deploy 1.3.0 (real Docker build: the new Dockerfile stage compiles the modules; it was simulated by hand here) and use it on real phones: touch drag and drop, camera capture, HEIC photos, Hebrew screens.
+1. Deploy 1.3.1 (real Docker build: the new Dockerfile stage compiles the modules; it was simulated by hand here) and use it on real phones: touch drag and drop, camera capture, HEIC photos, Hebrew screens.
 2. OCR on real receipts; try one cloud key from each provider you intend to use.
 3. A real SMTP test of the reset email.
 4. Run `update.sh` once on the real server (use `--dry-run` first).
@@ -193,13 +200,13 @@ In List history, a button such as "Add a trip I made without a list" for shoppin
 6. A native Hebrew speaker should review `i18n.ts`; an accessibility pass.
 
 ### 5.4 Open questions
-1. The owner's live **Portals test output for Shufersal and Carrefour** (the real Stores files of both are still unseen); Stop Market and Rami Levy were run on 8 Nov 2026 and match what is in this file.
-2. Move the existing Hebrew UI into the first language module in 1.3.1 (proposed) or leave it built in?
-3. Prices: fetch trigger lazy with a 24 h default (proposed); flag old prices after 60 days (proposed).
-4. The owner's go for 1.3.1.
+1. The owner's live **Portals test output for Shufersal and Carrefour** (their real Stores files are still unseen); Stop Market and Rami Levy were run on 8 Nov 2026 and match what is in this file.
+2. Prices (1.4.0): fetch trigger lazy with a 24 h default (proposed); flag prices not seen for 60 days (proposed).
+3. The owner's go for **1.4.0** (prices and matching, inside the `price-compare` module).
+4. Real Docker build of the 1.3.x image (the Dockerfile's module stage was simulated by hand, not run in Docker).
 
 ## 6. How to resume
 
-1. Give the assistant this file and the repository (or `shoplist-1_3_0.zip`). `docs/MODULES.md` is the module guide.
-2. Check the build: `cd server && npm ci && npm test` (81 tests; run `npm ci` without `--silent` and check `node_modules` exists); `cd web && npm ci && npm run build && node ../scripts/build-modules.mjs`; `bash tests/test-update.sh`.
+1. Give the assistant this file and the repository (or `shoplist-1_3_1.zip`). `docs/MODULES.md` is the module guide.
+2. Check the build: `cd server && npm ci && npm test` (83 tests; run `npm ci` without `--silent` and check `node_modules` exists); `cd web && npm ci && npm run build && node ../scripts/build-modules.mjs`; `bash tests/test-update.sh`.
 3. Settle section 5.4, then build. Server-side module changes need no web build; changing a module's browser code means `node scripts/build-modules.mjs`. Each stage ends with backend tests, an updated `e2e/e2e.py`, an updated README and this file, a version bump, and a tag.

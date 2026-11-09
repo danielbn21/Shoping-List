@@ -64,7 +64,7 @@ export default function Home({ me, onMeChange }: { me: Me; onMeChange: () => voi
   const card = (l: ListSummary) => (
     <button key={l.id} className="list-card" style={{ ['--c' as string]: LIST_COLORS[l.color] ?? LIST_COLORS.green }} onClick={() => setOpenId(l.id)}>
       <span>
-        <strong>{l.name}</strong>
+        <strong dir="auto">{l.name}</strong>
         <span className="muted" style={{ display: 'block' }}>{t('itemCount', { n: l.itemCount })}{l.visibility === 'private' ? ` · ${t('visPrivate')}` : ''}</span>
       </span>
     </button>
@@ -74,7 +74,7 @@ export default function Home({ me, onMeChange }: { me: Me; onMeChange: () => voi
     if (reorderLists === hid) {
       return (
         <div className="stack-sm">
-          <SortableList items={ls} onReorder={(next) => reorderIn(hid, next)} render={(l, handle) => <>{handle}<span className="grow"><strong>{l.name}</strong></span></>} />
+          <SortableList items={ls} onReorder={(next) => reorderIn(hid, next)} render={(l, handle) => <>{handle}<span className="grow"><strong dir="auto">{l.name}</strong></span></>} />
           <div><button className="btn small primary" onClick={() => setReorderLists(null)}>{t('doneReordering')}</button></div>
         </div>
       );
@@ -96,7 +96,7 @@ export default function Home({ me, onMeChange }: { me: Me; onMeChange: () => voi
       {reorderHouseholds && (
         <section className="card stack-sm">
           <h2>{t('reorderHouseholds')}</h2>
-          <SortableList items={me.households} onReorder={reorderHh} render={(h, handle) => <>{handle}<span className="grow"><strong>{h.name}</strong></span></>} />
+          <SortableList items={me.households} onReorder={reorderHh} render={(h, handle) => <>{handle}<span className="grow"><strong dir="auto">{h.name}</strong></span></>} />
           <div><button className="btn small primary" onClick={() => setReorderHouseholds(false)}>{t('doneReordering')}</button></div>
         </section>
       )}
@@ -116,7 +116,7 @@ export default function Home({ me, onMeChange }: { me: Me; onMeChange: () => voi
         return (
           <section key={h.id} className="hh stack-sm">
             <div className="row between" style={{ flexWrap: 'nowrap' }}>
-              <h2 style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{h.name}</h2>
+              <h2 dir="auto" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{h.name}</h2>
               <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
                 <button className="btn small signal" onClick={() => setSub({ kind: 'newList', hid: h.id })}>{t('newList')}</button>
                 <Menu label={`${t('menu')}: ${h.name}`} items={items} />
@@ -151,7 +151,7 @@ function CreateHousehold({ onCancel, onCreated }: { onCancel: () => void; onCrea
     <form className="card stack" onSubmit={submit}>
       <h1>{t('newHouseholdTitle')}</h1>
       <label className="field"><span>{t('householdNameLabel')}</span>
-        <input type="text" required autoFocus value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <input type="text" dir="auto" required autoFocus value={name} onChange={(e) => setName(e.target.value)} /></label>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="row">
         <button className="btn primary" type="submit">{t('newHouseholdBtn')}</button>
@@ -189,7 +189,7 @@ function CreateList({ me, initialHid, onCancel, onCreated }: { me: Me; initialHi
     <form className="card stack" onSubmit={submit}>
       <h1>{t('newList')}</h1>
       <label className="field"><span>{t('listName')}</span>
-        <input type="text" required autoFocus value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <input type="text" dir="auto" required autoFocus value={name} onChange={(e) => setName(e.target.value)} /></label>
       {me.households.length > 1 && (
         <label className="field"><span>{t('household')}</span>
           <select value={hid} onChange={(e) => setHid(Number(e.target.value))}>
@@ -204,7 +204,7 @@ function CreateList({ me, initialHid, onCancel, onCreated }: { me: Me; initialHi
         <div className="field"><span>{t('pickMembers')}</span>
           {members.map((m) => (
             <label className="check" key={m.id}>
-              <input type="checkbox" checked={picked.includes(m.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, m.id] : picked.filter((x) => x !== m.id))} />{m.name}
+              <input type="checkbox" checked={picked.includes(m.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, m.id] : picked.filter((x) => x !== m.id))} /><bdi>{m.name}</bdi>
             </label>
           ))}
         </div>

@@ -1,9 +1,13 @@
 import { ApiError } from './api';
 
-export type Lang = 'en' | 'he';
-
 const en = {
   appName: 'Shopping list',
+  // Manage list layout (1.3.1)
+  layoutTitle: 'Manage list layout',
+  layoutHelp: 'Choose the order of the sections in Manage list. Each section can be opened and closed there, and the app remembers which are open.',
+  layoutUp: 'Move up: {name}',
+  layoutDown: 'Move down: {name}',
+  layoutReset: 'Reset to the default order',
   // modules (1.3.0)
   modulesTitle: 'Modules',
   modulesHelp: 'Optional features added by modules. Switch off the ones you do not want to see.',
@@ -107,6 +111,7 @@ const en = {
   err_invalid_name: 'Enter a name.',
   err_password_short: 'Password is too short.',
   err_password_same: 'Choose a different password from the current one.',
+  err_password_short_min: 'Password must be at least {n} characters.',
   err_wrong_password: 'Current password is wrong.',
   err_invalid_invite: 'This invite code is invalid, expired, or used up.',
   err_invite_required: 'You need an invite code to create an account.',
@@ -431,471 +436,51 @@ const en = {
 };
 
 type Dict = typeof en;
-
-const he: Dict = {
-  appName: 'רשימת קניות',
-  // modules (1.3.0)
-  modulesTitle: 'מודולים',
-  modulesHelp: 'תכונות אופציונליות שנוספות על ידי מודולים. כבו את מה שלא רוצים לראות.',
-  modulesNone: 'אין מודולים זמינים עבורכם.',
-  moduleVersion: 'גרסה {v}',
-  moduleAdminHint: 'מנהלי המערכת מתקינים ומנהלים מודולים בניהול > מודולים.',
-  adminModules: 'מודולים',
-  modAdminHelp: 'התקנה, הפעלה והסרה של מודולים. שינויים נכנסים לתוקף לאחר הפעלה מחדש של השרת.',
-  modInstallBtn: 'התקנת מודול…',
-  modChecking: 'בודק את הקובץ…',
-  modConfirmTitle: 'להתקין את {name} {v}?',
-  modConfirmBody: 'מודול רץ בתוך השרת עם גישה מלאה לנתונים שלו. התקינו רק מודולים שאתם סומכים עליהם. המודול מותקן במצב כבוי.',
-  modHash: 'גיבוב הקובץ (SHA-256)',
-  modReplaces: 'מחליף את גרסה {v}',
-  modInstall: 'התקנה',
-  modInstalled: 'הותקן. הפעילו אותו ואז הפעילו מחדש את השרת.',
-  modEnable: 'הפעלה',
-  modDisable: 'כיבוי',
-  modUninstall: 'הסרה',
-  modUninstallConfirm: 'להסיר את {name}? המודול יוסר כשהשרת יופעל מחדש.',
-  modDeleteData: 'מחיקת הנתונים של המודול גם כן',
-  modRollback: 'חזרה לגרסה {v}',
-  modStatus_installed: 'מותקן',
-  modStatus_quarantined: 'נעצר בעקבות שגיאה',
-  modRunning: 'פועל',
-  modOff: 'כבוי',
-  modNeedsRestart: 'נדרשת הפעלה מחדש',
-  modRestart: 'הפעלה מחדש של השרת',
-  modRestartConfirm: 'להפעיל מחדש את השרת עכשיו? כולם ינותקו לכמה שניות.',
-  modRestarting: 'מפעיל מחדש את השרת…',
-  modDeps: 'דורש: {list}',
-  modProvides: 'מספק: {list}',
-  modAccess: 'מי יכול להשתמש',
-  modAccessHelp: 'משתמשים עם גישה עדיין יכולים לכבות אותו לעצמם.',
-  modSourceBundled: 'מגיע עם האפליקציה',
-  modSourceUpload: 'הועלה',
-  modAvailable: 'מגיע עם האפליקציה, לא מותקן',
-  modNone: 'לא מותקנים מודולים.',
-  modError: 'שגיאה: {e}',
-  err_zip_invalid: 'זה אינו קובץ zip תקין.',
-  err_zip_unsafe: 'ה-zip מכיל נתיב קובץ לא בטוח ונדחה.',
-  err_zip_too_large: 'המודול גדול מדי.',
-  err_zip_too_many_files: 'במודול יש יותר מדי קבצים.',
-  err_manifest_missing: 'הקובץ manifest.json חסר ב-zip.',
-  err_manifest_invalid: 'הקובץ manifest.json של המודול אינו תקין.',
-  err_core_incompatible: 'המודול אינו תואם לגרסה זו של האפליקציה.',
-  err_import_not_allowed: 'קוד השרת של המודול מייבא חבילה שאסור לו להשתמש בה.',
-  err_already_installed: 'גרסה זו כבר מותקנת.',
-  err_has_dependents: 'מודולים אחרים זקוקים לו. כבו אותם קודם.',
-  err_missing_dependency: 'מודול שהוא זקוק לו אינו מותקן או אינו פעיל.',
-  err_no_previous_version: 'אין גרסה קודמת לחזור אליה.',
-  err_stage_expired: 'ההעלאה פגה. בחרו את הקובץ שוב.',
-  err_module_unavailable: 'המודול אינו זמין.',
-
-  loading: 'טוען…',
-  retry: 'נסו שוב',
-  save: 'שמירה',
-  saved: 'נשמר',
-  cancel: 'ביטול',
-  copy: 'העתקה',
-  copied: 'הועתק',
-  close: 'סגירה',
-  offlineTitle: 'אין חיבור',
-  offlineBody: 'האפליקציה לא הצליחה להגיע לשרת. בדקו את החיבור ונסו שוב.',
-
-  signIn: 'כניסה',
-  createAccount: 'יצירת חשבון',
-  signOut: 'יציאה',
-  loginField: 'שם משתמש או אימייל',
-  username: 'שם משתמש',
-  name: 'השם שלך',
-  email: 'אימייל',
-  emailOptional: 'אימייל (אופציונלי, נדרש לאיפוס סיסמה במייל)',
-  password: 'סיסמה',
-  newPassword: 'סיסמה חדשה',
-  currentPassword: 'סיסמה נוכחית',
-  inviteCode: 'קוד הזמנה',
-  forgotPassword: 'שכחתם סיסמה?',
-  sendResetLink: 'שליחת קישור לאיפוס',
-  resetSent: 'אם לחשבון יש כתובת אימייל, קישור לאיפוס בדרך אליה. לא הגיע מייל? בקשו מהמנהל סיסמה חד-פעמית.',
-  resetNoEmail: 'איפוס במייל לא הוגדר בשרת הזה. בקשו מהמנהל סיסמה חד-פעמית.',
-  backToSignIn: 'חזרה לכניסה',
-  haveInvite: 'יש לי קוד הזמנה',
-  registrationClosed: 'חשבונות חדשים נוצרים על ידי המנהל.',
-  setupTitle: 'הגדרת השרת',
-  setupBody: 'צרו את חשבון המנהל. אחר כך אפשר להוסיף את שאר בני הבית.',
-  householdName: 'שם משק הבית',
-  createAdmin: 'יצירת חשבון מנהל',
-  resetTitle: 'בחרו סיסמה חדשה',
-  setPassword: 'שמירת סיסמה',
-  changePasswordTitle: 'בחרו סיסמה משלכם',
-  changePasswordBody: 'נכנסתם עם סיסמה חד-פעמית. בחרו סיסמה חדשה כדי להמשיך.',
-
-  err_invalid_credentials: 'שם משתמש או סיסמה שגויים.',
-  err_account_disabled: 'החשבון הושבת. פנו למנהל.',
-  err_email_taken: 'האימייל כבר בשימוש בחשבון אחר.',
-  err_invalid_username: 'השתמשו ב-2 עד 40 אותיות, ספרות, נקודות, מקפים או קווים תחתונים.',
-  err_invalid_email: 'הזינו כתובת אימייל תקינה.',
-  err_invalid_name: 'הזינו שם.',
-  err_password_short: 'הסיסמה קצרה מדי.',
-  err_password_same: 'בחרו סיסמה שונה מהנוכחית.',
-  err_wrong_password: 'הסיסמה הנוכחית שגויה.',
-  err_invalid_invite: 'קוד ההזמנה לא תקין, פג תוקפו או נוצל.',
-  err_invite_required: 'כדי ליצור חשבון נדרש קוד הזמנה.',
-  err_registration_closed: 'חשבונות חדשים נוצרים על ידי המנהל.',
-  err_invalid_token: 'קישור האיפוס לא תקין או שפג תוקפו.',
-  err_too_many_requests: 'יותר מדי ניסיונות. המתינו דקה ונסו שוב.',
-  err_last_admin: 'חייב להישאר לפחות מנהל פעיל אחד.',
-  err_cannot_delete_self: 'אי אפשר למחוק את החשבון שלכם.',
-  err_smtp_failed: 'שליחת המייל נכשלה. בדקו את הגדרות ה-SMTP.',
-  err_household_not_found: 'משק הבית הזה כבר לא קיים.',
-  err_generic: 'משהו השתבש. נסו שוב.',
-
-  navHome: 'רשימות',
-  navSettings: 'הגדרות',
-  navAdmin: 'ניהול',
-
-  hello: 'שלום, {name}',
-  soonTitle: 'הרשימות מגיעות בשלב הבא',
-  soonBody: 'החשבון, משק הבית והשרת עובדים. רשימות קניות, מאגר הפריטים ומפות חנויות יגיעו בגרסה הבאה.',
-  yourHouseholds: 'משקי הבית שלך',
-  installTitle: 'התקנה במכשיר הזה',
-  installBody: 'הוסיפו את האפליקציה למסך הבית כדי שתיפתח במסך מלא ותזכור אתכם.',
-  installButton: 'התקנת האפליקציה',
-  installIos: 'באייפון: לחצו על כפתור השיתוף ואז על ״הוספה למסך הבית״.',
-
-  profile: 'פרופיל',
-  language: 'שפה',
-  theme: 'מראה',
-  themeSystem: 'לפי המכשיר',
-  themeLight: 'בהיר',
-  themeDark: 'כהה',
-  household: 'משק בית',
-  createInvite: 'יצירת קישור הזמנה',
-  inviteReady: 'שתפו את הקישור או הקוד. תקף ל-7 ימים.',
-  inviteLink: 'קישור',
-  devices: 'מכשירים מחוברים',
-  thisDevice: 'המכשיר הזה',
-  lastActive: 'פעיל לאחרונה {when}',
-  signOutDevice: 'ניתוק',
-  changePassword: 'שינוי סיסמה',
-  otherDevicesNote: 'שינוי הסיסמה מנתק את המכשירים האחרים שלכם.',
-
-  adminUsers: 'משתמשים',
-  adminSettings: 'הגדרות שרת',
-  adminAudit: 'יומן פעילות',
-  addUser: 'הוספת משתמש',
-  role: 'תפקיד',
-  roleAdmin: 'מנהל',
-  roleUser: 'משתמש',
-  neverSeen: 'עוד לא נכנס',
-  lastSeen: 'נראה לאחרונה {when}',
-  statusDisabled: 'מושבת',
-  statusMustChange: 'נדרש שינוי סיסמה',
-  resetPassword: 'איפוס סיסמה',
-  disable: 'השבתה',
-  enable: 'הפעלה',
-  makeAdmin: 'הפיכה למנהל',
-  makeUser: 'הפיכה למשתמש',
-  deleteUser: 'מחיקה',
-  confirmDelete: 'למחוק את {name} לצמיתות?',
-  confirmReset: 'לאפס את הסיסמה של {name}? המשתמש ינותק מכל המכשירים.',
-  otpTitle: 'סיסמה חד-פעמית עבור {name}',
-  otpBody: 'מוצגת פעם אחת בלבד. בכניסה הראשונה יידרש לבחור סיסמה חדשה. הקוד רגיש לאותיות גדולות וקטנות.',
-  joinHousehold: 'משק בית',
-  newHousehold: 'יצירת משק בית חדש',
-  usageLine: '{items} פריטים נוספו · {buys} רכישות · {devices} מכשירים',
-  regMode: 'מי יכול ליצור חשבונות',
-  regOpen: 'כל מי שיש לו את הקישור',
-  regInvite: 'רק מי שיש לו קוד הזמנה',
-  regAdmin: 'רק המנהל',
-  sessionDays: 'הישארות מחובר (ימים)',
-  minPassword: 'אורך סיסמה מינימלי',
-  appUrl: 'הכתובת הציבורית של האפליקציה',
-  appUrlHint: 'משמשת בקישורי הזמנה ואיפוס, לדוגמה https://list.example.com',
-  smtpTitle: 'דוא״ל (SMTP)',
-  smtpHost: 'שרת',
-  smtpPort: 'פורט',
-  smtpSecure: 'שימוש ב-SSL/TLS (בדרך כלל פורט 465)',
-  smtpUser: 'שם משתמש',
-  smtpPass: 'סיסמה',
-  smtpFrom: 'כתובת השולח',
-  smtpHint: 'השאירו את השרת ריק כדי לכבות דוא״ל. איפוס סיסמה יתבצע אז עם סיסמה חד-פעמית.',
-  testEmail: 'שליחת מייל בדיקה',
-  testEmailTo: 'שליחה אל',
-  testEmailOk: 'מייל הבדיקה נשלח.',
-  noActivity: 'עדיין אין פעילות.',
-
-  newList: 'רשימה חדשה',
-  listName: 'שם הרשימה',
-  shareWith: 'מי יכול לראות',
-  visHousehold: 'כל משק הבית',
-  visPrivate: 'רק אנשים שאבחר',
-  pickMembers: 'בחרו מי יכול לראות',
-  listColor: 'צבע',
-  createList: 'יצירת רשימה',
-  noLists: 'עוד אין רשימות',
-  noListsBody: 'צרו את הרשימה הראשונה והתחילו להוסיף מה שהבית צריך.',
-  itemCount: '{n} פריטים',
-  emptyList: 'עוד אין כלום ברשימה. הוסיפו פריט למעלה או בחרו אחד ממאגר הפריטים.',
-  addItemPlaceholder: 'הוספת פריט…',
-  add: 'הוספה',
-  quantity: 'כמות',
-  unit: 'יחידה',
-  note: 'הערה',
-  moreDetails: 'עוד פרטים',
-  category: 'קטגוריה',
-  uncategorized: 'אחר',
-  onListQty: 'ברשימה ×{n}',
-  addNewItem: 'הוספת ״{name}״ כפריט חדש',
-  didYouMean: 'יש כבר פריטים דומים במאגר. האם התכוונתם לאחד מהם?',
-  addAsNew: 'לא, להוסיף ״{name}״ כפריט חדש',
-  tabList: 'רשימה',
-  tabBank: 'מאגר פריטים',
-  searchBank: 'חיפוש במאגר…',
-  allCategories: 'כל הקטגוריות',
-  bankEmpty: 'המאגר מתמלא ככל שמוסיפים פריטים.',
-  addToList: 'הוספה לרשימה',
-  manageCategories: 'קטגוריות',
-  addCategory: 'הוספת קטגוריה',
-  newCategoryName: 'שם קטגוריה חדשה',
-  deleteList: 'מחיקת הרשימה',
-  confirmDeleteList: 'למחוק את ״{name}״? הפריטים נשארים במאגר.',
-  removeItem: 'הסרה',
-  removeFromBank: 'הסרה מהמאגר',
-  confirmRemoveBank: 'להסיר את ״{name}״ מהמאגר? הוא יוסר גם מכל רשימה שהוא נמצא בה.',
-  addedBy: 'נוסף על ידי {name}',
-  back: 'כל הרשימות',
-  showAddedBy: 'הצגת מי הוסיף כל פריט',
-  fewer: 'פחות',
-  more: 'יותר',
-  err_item_exists: 'כבר קיים פריט בשם הזה.',
-  err_item_not_found: 'הפריט הזה כבר לא קיים.',
-  err_invalid_quantity: 'הזינו כמות גדולה מאפס.',
-  err_invalid_category: 'הקטגוריה הזו כבר לא קיימת.',
-  err_forbidden: 'אין לכם הרשאה לבצע את הפעולה.',
-  err_not_found: 'לא נמצא. ייתכן שנמחק.',
-
-  tabShop: 'קניות',
-  tabManage: 'ניהול הרשימה',
-  searchList: 'חיפוש ברשימה…',
-  inCart: 'בעגלה',
-  undo: 'ביטול',
-  finishTrip: 'סיום קנייה',
-  finishTitle: 'לסיים את הקנייה?',
-  finishBody: 'נקנו {bought}. {left} נשארים ברשימה.',
-  confirmFinish: 'כן, לסיים',
-  tripDone: 'הקנייה הסתיימה. {n} פריטים נשמרו בהיסטוריית הרכישות.',
-  shoppingNow: '{name} בקניות עכשיו',
-  orderBy: 'סדר',
-  orderCategory: 'לפי קטגוריה',
-  noMatches: 'שום דבר לא תואם ל״{q}״.',
-  allChecked: 'הכול סומן. לחצו על סיום קנייה כשסיימתם.',
-  markBought: 'סימון כנקנה',
-  putBack: 'החזרה לרשימה',
-  emptyShop: 'הרשימה ריקה. בקשו מעורך להוסיף פריטים.',
-  addItems: 'הוספת פריטים',
-  itemLabel: 'פריט',
-  quantityLabel: 'כמות',
-  noteLabel: 'הערה (אופציונלי)',
-  categoryLabel: 'קטגוריה',
-  newCategoryOption: '＋ קטגוריה חדשה…',
-  createCategory: 'יצירה',
-  fromHistory: 'הוספה מפריטים קודמים',
-  pastHelp: 'כל מה שהוספתם בעבר. בחרו כמות והוסיפו שוב.',
-  onThisList: 'ברשימה הזו',
-  manageHint: 'גררו ⠿ לשינוי סדר. שחררו פריט בקטגוריה אחרת כדי להעביר אותו.',
-  emptyManage: 'עוד אין כלום ברשימה. הוסיפו פריט למעלה או מהפריטים הקודמים.',
-  dragHandle: 'גרירה לשינוי סדר',
-  editItem: 'עריכה',
-  boughtTimes: 'נקנה {n} פעמים',
-  lastBought: 'לאחרונה {when}',
-  neverBought: 'עוד לא נקנה',
-  boughtShort: '{n}× · {when}',
-  categoriesOrder: 'קטגוריות וסדר שלהן',
-  categoriesHelp: 'גררו כדי לשנות את סדר ברירת המחדל. אפשר לשנות שם, למחוק או להוסיף קטגוריות משלכם.',
-  rename: 'שינוי שם',
-  stores: 'חנויות',
-  storesHelp: 'קבעו את סדר הקטגוריות לפי המעבר בכל סופרמרקט. בחרו חנות במצב קניות והרשימה תסתדר בהתאם.',
-  addStore: 'הוספת חנות',
-  storeName: 'שם החנות',
-  deleteStore: 'מחיקת חנות',
-  confirmDeleteStore: 'למחוק את החנות ״{name}״?',
-  confirmDeleteCategory: 'למחוק את הקטגוריה ״{name}״? הפריטים שבה יהפכו ללא קטגוריה.',
-  people: 'מי משתמש ברשימה',
-  peopleHelp: 'עורכים מנהלים את הרשימה. קונים רואים רק את לשונית הקניות ומסמנים פריטים.',
-  roleOwner: 'בעלים',
-  roleEditor: 'עורך',
-  roleShopper: 'קונה',
-  roleNone: 'ללא גישה',
-  listNameLabel: 'שם הרשימה',
-  saveName: 'שמירת שם',
-  sortRecent: 'נקנו לאחרונה קודם',
-  sortName: 'א׳ עד ת׳',
-  err_nothing_checked: 'סמנו לפחות פריט אחד קודם.',
-  err_store_not_found: 'החנות הזו כבר לא קיימת.',
-
-  menu: 'תפריט',
-  newHouseholdBtn: 'משק בית חדש',
-  newHouseholdTitle: 'משק בית חדש',
-  reorderLists: 'סידור הרשימות',
-  reorderHouseholds: 'סידור משקי הבית',
-  doneReordering: 'סיום',
-  manageHousehold: 'ניהול משק הבית',
-  noListsHere: 'עוד אין רשימות במשק הבית הזה.',
-  members: 'חברים',
-  addMemberHelp: 'הוסיפו מי שכבר יש לו חשבון, לפי שם המשתמש המדויק שלו.',
-  memberUsername: 'שם משתמש',
-  addMember: 'הוספת חבר',
-  roleMember: 'חבר',
-  removeMember: 'הסרה',
-  confirmRemoveMember: 'להסיר את {name} ממשק הבית? הגישה שלו לרשימות תיחסם.',
-  inviteSection: 'הזמנת אדם חדש',
-  inviteSectionHelp: 'שתפו קישור או קוד. מי שישתמש בהם ייצור חשבון ויצטרף למשק הבית הזה.',
-  activeInvites: 'הזמנות פעילות',
-  leaveHousehold: 'עזיבת משק הבית',
-  confirmLeave: 'לעזוב את ״{name}״? הגישה שלכם לרשימות שלו תיחסם.',
-  deleteHousehold: 'מחיקת משק הבית',
-  deleteHouseholdHelp: 'הפעולה מוחקת לצמיתות את משק הבית עם הרשימות, הפריטים והיסטוריית הרכישות שלו. הקלידו את שמו כדי לאשר.',
-  typeNameToConfirm: 'הקלידו את שם משק הבית',
-  householdNameLabel: 'שם משק הבית',
-  allowUserHouseholds: 'לאפשר למשתמשים ליצור משקי בית משלהם',
-  defaultNote: 'הערת ברירת מחדל',
-  priceOptional: 'מחיר (אופציונלי)',
-  itemEditorHint: 'הערת ברירת המחדל מתמלאת בכל פעם שהפריט מתווסף.',
-  err_user_not_found: 'לא נמצא משתמש בשם הזה.',
-  err_already_member: 'המשתמש כבר חבר במשק הבית.',
-  err_last_owner: 'חייב להישאר לפחות בעלים אחד. הפכו מישהו אחר לבעלים קודם.',
-  err_last_member: 'אתם החברים היחידים. מחקו את משק הבית במקום לעזוב.',
-  err_household_creation_disabled: 'יצירת משקי בית כבויה על ידי המנהל.',
-  err_name_mismatch: 'השם לא תואם.',
-  err_invalid_price: 'הזינו מחיר תקין.',
-  err_use_leave: 'כדי להסיר את עצמכם השתמשו בעזיבת משק הבית.',
-
-  currency: 'מטבע',
-  currencyAuto: 'אוטומטי ({code})',
-  currencyHelp: 'משמש להצגת מחירים וסכומים. מזוהה לפי אזור הזמן והשפה עד שתבחרו.',
-  receiptTotalOptional: 'סכום הקבלה (אופציונלי)',
-  receiptPhotoOptional: 'תמונת קבלה (אופציונלי)',
-  choosePhoto: 'צילום או בחירת תמונה',
-  photoReady: 'התמונה מוכנה',
-  removePhoto: 'הסרת התמונה',
-  receiptSaved: 'תמונת הקבלה נשמרה. פתחו את היסטוריית הרשימה כדי לעבור עליה.',
-  receiptUploadFailed: 'הקנייה נשמרה, אבל התמונה לא הועלתה. אפשר להוסיף אותה מהיסטוריית הרשימה.',
-  tabHistory: 'היסטוריית הרשימה',
-  editLine: 'תיקון השורה',
-  removeLine: 'מחיקת השורה',
-  confirmRemoveLine: 'למחוק את ״{name}״ מהיסטוריית הקנייה הזו?',
-  tabMore: 'עוד',
-  historyEmpty: 'עוד אין קניות שהסתיימו. כשתסיימו קנייה היא תופיע כאן.',
-  showOlder: 'הצגת קניות ישנות יותר',
-  shoppedBy: 'קנה/תה: {name}',
-  total: 'סה״כ',
-  itemsAddUp: 'הפריטים מסתכמים ב-{v}',
-  editTotal: 'עריכת הסכום',
-  receiptsHeading: 'קבלות',
-  addReceiptPhoto: 'הוספת תמונת קבלה',
-  readReceipt: 'קריאת הקבלה',
-  readAgain: 'קריאה מחדש',
-  reviewReceipt: 'בדיקה',
-  ocrPending: 'קורא את הקבלה…',
-  ocrFailedMsg: 'לא הצלחנו לקרוא את הקבלה ({reason}). אפשר להזין מחירים ידנית.',
-  openPhoto: 'פתיחת התמונה',
-  deleteReceipt: 'מחיקת התמונה',
-  confirmDeleteReceipt: 'למחוק את תמונת הקבלה?',
-  priceShort: 'מחיר',
-  lineTotalShort: 'סכום',
-  qtyShort: 'כמות',
-  restoreHeading: 'החזרת פריטים לרשימה',
-  restoreSelected: 'שחזור {n} לרשימה הזו',
-  restoreDone: 'נוספו {added}, אוחדו {merged}.',
-  exportPurchases: 'ייצוא רכישות (CSV)',
-  dateFrom: 'מתאריך',
-  dateTo: 'עד תאריך',
-  reviewTitle: 'בדיקת הקבלה',
-  reviewHelp: 'תקנו מה שהסורק טעה בו. שורות שתואמות פריט מהקנייה הזו מעדכנות את מחירו. שורות אחרות מתווספות לקנייה.',
-  matchesItem: 'תואם: {name}',
-  newItemBadge: 'פריט חדש',
-  useLine: 'להשתמש בשורה',
-  receiptTotalLabel: 'סכום הקבלה',
-  linesAddUp: 'השורות מסתכמות ב-{v}',
-  applyReceipt: 'שמירה בהיסטוריה',
-  showRawText: 'הצגת הטקסט שנסרק',
-  hideRawText: 'הסתרת הטקסט שנסרק',
-  engineUsed: 'נקרא באמצעות: {engine}',
-  engineLocal: 'סורק מקומי',
-  engineCloud: 'שירות ענן',
-  noLinesFound: 'לא נמצאו שורות פריטים. הזינו ידנית או נסו תמונה ברורה יותר.',
-  csvTitle: 'גיבוי והעברת פריטים (CSV)',
-  csvHelp: 'ייצאו את מאגר הפריטים, כולל הכמויות שברשימה הזו, לקובץ CSV. ייבאו קובץ כדי לשחזר, או כדי להביא פריטים וכמויות מרשימה או ממשק בית אחרים לכאן.',
-  csvExport: 'ייצוא פריטים',
-  csvChoose: 'בחירת קובץ CSV',
-  csvPreview: 'תצוגה מקדימה של הייבוא',
-  csvSummary: 'חדשים: {create} · קיימים: {update} · יתווספו לרשימה: {addToList} · דולגו: {skip}',
-  csvSimilar: '{n} שמות דומים לפריטים קיימים.',
-  csvOptOverwrite: 'להחליף הערות, מחירים וקטגוריות של פריטים שכבר יש לי',
-  csvOptMerge: 'להתייחס לשמות דומים כאל אותו פריט',
-  csvApply: 'ייבוא עכשיו',
-  csvDone: 'הייבוא הסתיים.',
-  csvActionCreate: 'חדש',
-  csvActionUpdate: 'קיים',
-  csvActionSkip: 'דולג',
-  csvActionDup: 'חוזר',
-  err_invalid_image: 'הקובץ אינו תמונה נתמכת (JPEG, PNG או WebP).',
-  err_too_many_receipts: 'לקנייה הזו כבר יש את המספר המרבי של תמונות קבלה.',
-  err_ocr_disabled: 'סריקת קבלות כבויה על ידי המנהל.',
-  err_invalid_total: 'הזינו סכום תקין.',
-  err_nothing_selected: 'בחרו לפחות שורה אחת קודם.',
-  err_csv_empty: 'בקובץ אין שורות.',
-  err_csv_too_large: 'בקובץ יותר מדי שורות (המגבלה היא 5000).',
-  err_csv_no_name_column: 'הקובץ חייב לכלול עמודה בשם name.',
-  updateAvailable: 'גרסה חדשה יותר זמינה בשרת שלכם (אפליקציה {web}, שרת {server}). עדכנו כדי לקבל את התכונות האחרונות.',
-  updateNow: 'עדכון עכשיו',
-  versionLine: 'גרסה: אפליקציה {web} · שרת {server}',
-};
-
-const dicts: Record<Lang, Dict> = { en, he };
-let current: Lang = 'en';
-
 export type Key = keyof Dict;
 
+// English is built in. Every other language is a language module: its translation file maps the same keys (core and module keys)
+// to text, and a missing key falls back to English.
+export type Lang = string;
+export type LangInfo = { code: string; nativeName: string; dir: 'ltr' | 'rtl'; locale: string };
+const languages = new Map<string, LangInfo>([['en', { code: 'en', nativeName: 'English', dir: 'ltr', locale: 'en-US' }]]);
+const translations: Record<string, Record<string, string>> = {};
+let current: Lang = 'en';
+
+export function registerLanguage(info: LangInfo, strings: Record<string, string>) { languages.set(info.code, info); translations[info.code] = strings; }
+export function unregisterLanguage(code: string) { if (code !== 'en') { languages.delete(code); delete translations[code]; } }
+export const availableLanguages = (): LangInfo[] => [...languages.values()];
+
+// An unknown language (its module is not installed or is switched off) falls back to English.
 export function setLang(l: Lang) {
-  current = l;
-  document.documentElement.lang = l;
-  document.documentElement.dir = l === 'he' ? 'rtl' : 'ltr';
+  current = languages.has(l) ? l : 'en';
+  document.documentElement.lang = current;
+  document.documentElement.dir = languages.get(current)!.dir;
 }
 export const getLang = () => current;
+export const isRtl = () => languages.get(current)?.dir === 'rtl';
+// Number formats follow the language's locale (English: en-US); dates read day-month-year for English (en-GB).
+export const numberLocale = () => languages.get(current)?.locale ?? 'en-US';
+export const dateLocale = () => (current === 'en' ? 'en-GB' : numberLocale());
+
+const fill = (s: string, vars?: Record<string, string | number>) => { if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v)); return s; };
 
 export function t(key: Key, vars?: Record<string, string | number>): string {
-  let s: string = dicts[current][key] ?? dicts.en[key] ?? key;
-  if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
-  return s;
+  return fill(translations[current]?.[key] ?? en[key] ?? key, vars);
 }
 
-// Strings that belong to modules arrive at run time (a module's i18n.json). Missing keys fall back to English, then to the core dictionary.
-const extras: Record<Lang, Record<string, string>> = { en: {}, he: {} };
-export function addStrings(dict: Partial<Record<Lang, Record<string, string>>>) {
-  Object.assign(extras.en, dict.en ?? {});
-  Object.assign(extras.he, dict.he ?? {});
-}
+// Strings that belong to modules arrive at run time (a module's i18n.json, English). Translations come from the language modules.
+const extras: Record<string, string> = {};
+export function addStrings(dict: { en?: Record<string, string> }) { Object.assign(extras, dict.en ?? {}); }
 export function tx(key: string, vars?: Record<string, string | number>): string {
-  const core = dicts[current] as Record<string, string>, coreEn = dicts.en as Record<string, string>;
-  let s = extras[current][key] ?? core[key] ?? extras.en[key] ?? coreEn[key] ?? key;
-  if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
-  return s;
-}
-
-export function detectLang(): Lang {
-  const saved = localStorage.getItem('sl_lang');
-  if (saved === 'he' || saved === 'en') return saved;
-  return navigator.language?.toLowerCase().startsWith('he') ? 'he' : 'en';
+  return fill(translations[current]?.[key] ?? extras[key] ?? (en as Record<string, string>)[key] ?? key, vars);
 }
 
 export function errText(e: unknown, extra?: { minLen?: number }): string {
   if (e instanceof ApiError) {
-    const key = ('err_' + e.code) as Key;
-    if (e.code === 'password_short' && extra?.minLen) {
-      return current === 'he' ? `הסיסמה חייבת להכיל לפחות ${extra.minLen} תווים.` : `Password must be at least ${extra.minLen} characters.`;
-    }
+    const key = 'err_' + e.code;
+    if (e.code === 'password_short' && extra?.minLen) return t('err_password_short_min', { n: extra.minLen });
     if (e.code === 'smtp_failed' && e.detail) return `${t('err_smtp_failed')} (${e.detail})`;
-    if (extras[current][key] ?? extras.en[key]) return tx(key);
-    if (key in en) return t(key);
+    if (translations[current]?.[key] ?? extras[key] ?? key in en) return tx(key);
   }
   return t('err_generic');
 }
@@ -903,7 +488,7 @@ export function errText(e: unknown, extra?: { minLen?: number }): string {
 export function timeAgo(ms: number | null | undefined): string {
   if (!ms) return '';
   const diff = Date.now() - ms;
-  const rtf = new Intl.RelativeTimeFormat(current, { numeric: 'auto' });
+  const rtf = new Intl.RelativeTimeFormat(numberLocale(), { numeric: 'auto' });
   const m = Math.round(diff / 60000);
   if (m < 60) return rtf.format(-m, 'minute');
   const h = Math.round(diff / 3600000);

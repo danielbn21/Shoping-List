@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from './api';
-import { t, errText, getLang } from './i18n';
+import { t, errText, getLang, isRtl } from './i18n';
 import { LIST_COLORS, type Detail, type Entry, type Me } from './types';
 import ShopTab from './ShopTab';
 import ManageTab from './ManageTab';
@@ -69,8 +69,8 @@ export default function ListView({ listId, me, onBack }: { listId: number; me: M
   return (
     <div className="stack">
       <div className="listhead">
-        <button className="iconbtn" onClick={onBack} aria-label={t('back')} title={t('back')}>{getLang() === 'he' ? '→' : '←'}</button>
-        <h1 style={{ borderBottom: `5px solid ${color}`, paddingBottom: 4 }}>{list.name}</h1>
+        <button className="iconbtn" onClick={onBack} aria-label={t('back')} title={t('back')}>{isRtl() ? '→' : '←'}</button>
+        <h1 dir="auto" style={{ borderBottom: `5px solid ${color}`, paddingBottom: 4 }}>{list.name}</h1>
       </div>
 
       <div className="tabs" role="group">

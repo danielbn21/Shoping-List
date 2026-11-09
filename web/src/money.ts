@@ -1,4 +1,4 @@
-import { getLang } from './i18n';
+import { numberLocale } from './i18n';
 import type { Me } from './types';
 
 export const CURRENCIES = ['ILS', 'USD', 'EUR', 'GBP', 'CAD', 'AUD', 'NZD', 'CHF', 'JPY', 'CNY', 'INR', 'RUB', 'UAH', 'PLN', 'CZK', 'HUF', 'RON', 'SEK', 'NOK', 'DKK', 'TRY', 'BRL', 'MXN', 'ARS', 'ZAR', 'AED', 'SAR', 'EGP', 'SGD', 'HKD', 'KRW', 'THB'];
@@ -36,11 +36,11 @@ export function detectCurrency(): string {
 export const effectiveCurrency = (me: Pick<Me, 'currency'>) => me.currency ?? detectCurrency();
 
 export function currencyName(code: string): string {
-  try { return new Intl.DisplayNames([getLang()], { type: 'currency' }).of(code) ?? code; } catch { return code; }
+  try { return new Intl.DisplayNames([numberLocale()], { type: 'currency' }).of(code) ?? code; } catch { return code; }
 }
 
 export function formatMoney(amount: number | null | undefined, currency: string): string {
   if (amount === null || amount === undefined) return '—';
-  try { return new Intl.NumberFormat(getLang() === 'he' ? 'he-IL' : 'en-US', { style: 'currency', currency }).format(amount); }
+  try { return new Intl.NumberFormat(numberLocale(), { style: 'currency', currency }).format(amount); }
   catch { return `${amount.toFixed(2)} ${currency}`; }
 }

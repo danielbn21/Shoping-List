@@ -40,7 +40,7 @@ A shipped module (zip or bundled folder) holds `manifest.json`, `server/`, `web.
 }
 ```
 
-`kind` is `feature` (default) or `language` (data only, planned for 1.3.1). Ids are lowercase letters, digits and dashes.
+`kind` is `feature` (default) or `language` (see below). Ids are lowercase letters, digits and dashes.
 
 ## Server side: `server/index.js`
 
@@ -92,6 +92,23 @@ cd web && npx tsc --noEmit -p tsconfig.modules.json   # type-check module source
 ```
 
 Install: **Admin > Modules > Install a module…**, choose the zip, check the name, version and SHA-256, confirm. The module is installed **switched off**. Switch it on, then press **Restart server**. Nothing restarts by itself. Docker (`restart: unless-stopped`) starts the server again.
+
+## Language modules (since 1.3.1)
+
+English is built into the core. Every other interface language is a **language module**: data only, no server or browser code.
+
+```json
+{
+  "id": "lang-he", "name": "Hebrew (עברית)", "kind": "language", "version": "1.0.0",
+  "requires": { "core": ">=1.3.1 <2.0.0" },
+  "code": "he", "nativeName": "עברית", "dir": "rtl", "locale": "he-IL",
+  "strings": "strings.json"
+}
+```
+
+`strings.json` is one flat map from key to text and covers **core and module keys together** (modules ship English only in their own `i18n.json`; translations live in the language module). A missing key falls back to English, so a translation can be partial and new strings need English text only. `dir` (`ltr` or `rtl`) sets the page direction, `locale` drives number and currency formats (dates read day-month-year for English). The code `en` is reserved.
+
+Language modules are open to every signed-in user while enabled (no grant, no personal switch). Settings > Language lists English plus the enabled language modules; a user whose language module is missing or switched off sees English and keeps their saved choice. Content direction does not depend on the interface language: user text (items, lists, stores, categories, households, notes) uses `dir="auto"`, so Hebrew content is right-to-left in an English interface too.
 
 ## Lifecycle and safety
 

@@ -126,7 +126,7 @@ test('disabling the module switches comparison off for everyone; the user\'s own
   const dana = await mkUser('dana');
   assert.ok(admin.body.user.modules.some((m) => m.id === 'price-compare' && m.on));
   assert.ok((await call('GET', '/api/me', undefined, dana.cookie)).body.user.capabilities.includes('price-source'));
-  assert.equal((await call('PUT', '/api/modules/price-compare/me', { on: false }, dana.cookie)).body.user.modules[0].on, false);
+  assert.equal((await call('PUT', '/api/modules/price-compare/me', { on: false }, dana.cookie)).body.user.modules.find((m) => m.id === 'price-compare').on, false);
   assert.equal((await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, dana.cookie)).status, 404); // off for her
   assert.equal((await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie)).status, 200); // still on for the admin
   await call('POST', '/api/admin/modules/price-compare/disable', {}, admin.cookie);

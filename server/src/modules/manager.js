@@ -65,7 +65,12 @@ export function createModules(app, { bundledDir = null, moduleOptions = {}, core
     const m = c.manifest;
     checkImports(files, new Set([m.web, m.css].filter(Boolean)));
     // A development checkout may not have built its browser files yet; uploads must be complete.
-    for (const k of lenient ? ['server'] : ['server', 'web', 'css', 'i18n']) if (m[k] && !files[m[k]]) throw coded('manifest_invalid', `${k} file ${m[k]} is not in the module`);
+    for (const k of lenient ? ['server', 'strings'] : ['server', 'web', 'css', 'i18n', 'strings']) if (m[k] && !files[m[k]]) throw coded('manifest_invalid', `${k} file ${m[k]} is not in the module`);
+    if (m.kind === 'language') {
+      let dict;
+      try { dict = JSON.parse(files[m.strings].toString('utf8')); } catch { throw coded('manifest_invalid', 'the strings file is not valid JSON'); }
+      if (!dict || typeof dict !== 'object' || Array.isArray(dict) || Object.keys(dict).length > 5000 || Object.values(dict).some((v) => typeof v !== 'string')) throw coded('manifest_invalid', 'the strings file must map keys to text');
+    }
     return { manifest: m, sha: sha ?? hashFiles(files), files: Object.keys(files).length };
   }
 
@@ -356,6 +361,12 @@ export function createModules(app, { bundledDir = null, moduleOptions = {}, core
     const mods = [];
     for (const r of rows()) {
       if (!r.enabled || r.status !== 'installed' || !loaded.has(r.id)) continue;
+      const lm = loaded.get(r.id).manifest;
+      if (lm.kind === 'language') {   // languages are for everyone: no grant, no personal switch
+        mods.push({ id: r.id, name: r.name, kind: 'language', version: r.version, description: lm.description, on: true, slots: [], web: null, css: null, i18n: null,
+          lang: { code: lm.code, nativeName: lm.nativeName, dir: lm.dir, locale: lm.locale }, strings: `/api/modules/${r.id}/asset/strings.json?v=${encodeURIComponent(r.version)}` });
+        continue;
+      }
       const a = accessRow(user.id, r.id);
       if (a && a.granted === 0) continue;
       const m = loaded.get(r.id).manifest, on = !a || a.user_on === 1, v = encodeURIComponent(r.version);
@@ -370,12 +381,18 @@ export function createModules(app, { bundledDir = null, moduleOptions = {}, core
     return { modules: mods, capabilities: caps };
   }
 
+  // Language codes a user may choose: English (built in) plus every enabled language module.
+  const languageCodes = () => ['en', ...rows().filter((r) => r.enabled && r.status === 'installed' && loaded.has(r.id) && loaded.get(r.id).manifest.kind === 'language').map((r) => loaded.get(r.id).manifest.code)];
+  const isLanguage = (id) => loaded.get(id)?.manifest.kind === 'language';
+  // Feature modules follow the per-user rules; language modules are open to every signed-in user while enabled.
+  const assetAllowed = (userId, id) => (isLanguage(id) ? enabledLive(id) : available(userId, id));
+
   const providerFor = (capability, userId) => providers.find((p) => p.capability === capability && available(userId, p.moduleId))?.impl ?? null;
 
   function assetFor(id, name) {
     const l = loaded.get(id);
     if (!l) return null;
-    const file = { 'web.js': l.manifest.web, 'web.css': l.manifest.css, 'i18n.json': l.manifest.i18n }[name];
+    const file = { 'web.js': l.manifest.web, 'web.css': l.manifest.css, 'i18n.json': l.manifest.i18n, 'strings.json': l.manifest.strings }[name];
     if (!file) return null;
     const abs = path.join(l.dir, file);
     return fs.existsSync(abs) ? abs : null;
@@ -385,7 +402,7 @@ export function createModules(app, { bundledDir = null, moduleOptions = {}, core
     events, core, load, rows, row, describe, loaded, providers, root,
     inspectFiles, installFiles, stageZip, installStaged, bundledAvailable, installBundled,
     setEnabled, uninstall, rollback, setGranted, setUserOn, accessList, accessRow,
-    available, enabledLive, payloadFor, providerFor, assetFor,
+    available, enabledLive, payloadFor, providerFor, assetFor, languageCodes, isLanguage, assetAllowed,
     capabilityProviders: (capability) => providers.filter((p) => p.capability === capability).map((p) => p.moduleId),
   };
 }
