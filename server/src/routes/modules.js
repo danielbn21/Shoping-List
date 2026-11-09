@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { audit } from '../util.js';
 
 const bad = (reply, error, code = 400, detail) => reply.code(code).send(detail ? { error, detail } : { error });
-const TYPES = { 'web.js': 'application/javascript; charset=utf-8', 'web.css': 'text/css; charset=utf-8', 'i18n.json': 'application/json; charset=utf-8' };
+const TYPES = { 'web.js': 'application/javascript; charset=utf-8', 'web.css': 'text/css; charset=utf-8', 'i18n.json': 'application/json; charset=utf-8', 'strings.json': 'application/json; charset=utf-8' };
 const STATUS = { not_found: 404, already_installed: 409, has_dependents: 409, missing_dependency: 409, no_previous_version: 409, stage_expired: 410, forbidden: 403 };
 
 // Turns the manager's coded errors into API errors; anything else is a real bug and goes to the error handler.
@@ -23,7 +23,7 @@ export default async function moduleRoutes(app) {
   // Browser code, styles and strings of a module. The URL carries ?v=<version>, so it can be cached for good.
   app.get('/api/modules/:id/asset/:name', user, async (req, reply) => {
     const { id, name } = req.params;
-    if (!TYPES[name] || !mods.available(req.user.id, id)) return bad(reply, 'not_found', 404);
+    if (!TYPES[name] || !mods.assetAllowed(req.user.id, id)) return bad(reply, 'not_found', 404);
     const file = mods.assetFor(id, name);
     if (!file) return bad(reply, 'not_found', 404);
     return reply.header('Cache-Control', 'private, max-age=31536000, immutable').type(TYPES[name]).send(fs.createReadStream(file));
@@ -33,7 +33,7 @@ export default async function moduleRoutes(app) {
   app.put('/api/modules/:id/me', user, async (req, reply) => {
     const id = req.params.id, on = (req.body || {}).on;
     if (typeof on !== 'boolean') return bad(reply, 'invalid_value');
-    if (!mods.loaded.has(id) || !mods.enabledLive(id)) return bad(reply, 'not_found', 404);
+    if (!mods.loaded.has(id) || !mods.enabledLive(id) || mods.isLanguage(id)) return bad(reply, 'not_found', 404);
     return guard(reply, () => { mods.setUserOn(req.user.id, id, on); return { user: app.userPayload(db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id)) }; });
   });
 

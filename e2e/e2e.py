@@ -38,6 +38,7 @@ with sync_playwright() as p:
     # ---- first-run setup ----
     page.goto(B)
     page.wait_for_selector("text=Set up your server")
+    check("the first screen has no language switch (English until you choose a language in Settings)", page.locator(".langswitch").count() == 0 and page.get_by_text("עברית").count() == 0)
     page.screenshot(path="/tmp/shots/01-setup.png")
     page.get_by_label("Your name").fill("Admin")
     page.get_by_label("Username", exact=True).fill("admin")
@@ -53,11 +54,11 @@ with sync_playwright() as p:
     page.wait_for_selector("button:has-text('Manage list')")
     check("new list opens straight into Shop tab", page.get_by_role("button", name="Shop", exact=True).get_attribute("aria-pressed") == "true")
     check("shop tab shows empty hint", page.locator("text=This list is empty").count() == 1)
-    check("shop tab has no add/edit controls", page.locator("h2:text-is('Add items')").count() == 0)
+    check("shop tab has no add/edit controls", page.locator("summary:text-is('Add items')").count() == 0)
 
     # ---- manage: labeled fields ----
     page.locator(".tabs button", has_text="Manage list").click()
-    page.wait_for_selector("h2:text-is('Add items')")
+    page.wait_for_selector("summary:text-is('Add items')")
     labels = [page.locator(f"label.field > span:text-is('{l}')").count() for l in ["Item", "Quantity", "Category", "Note (optional)"]]
     check("labels visible: Item/Quantity/Category/Note", all(c >= 1 for c in labels), str(labels))
     check("no Unit field in add form", page.get_by_label("Unit").count() == 0)
@@ -68,9 +69,9 @@ with sync_playwright() as p:
         sel = page.locator("form select").first
         if new_cat:
             sel.select_option("__new__")
-            page.locator("form.card").first.get_by_placeholder("New category name").fill(new_cat)
+            page.locator("form").first.get_by_placeholder("New category name").fill(new_cat)
             page.get_by_role("button", name="Create", exact=True).click()
-            page.wait_for_selector("form.card >> nth=0 >> input[placeholder='New category name']", state="detached")
+            page.locator("form").first.get_by_placeholder("New category name").wait_for(state="detached")
         elif cat:
             sel.select_option(label=cat)
         if note:
@@ -298,7 +299,7 @@ with sync_playwright() as p:
     if page.locator(".list-card").count(): page.locator(".list-card").first.click()
     page.wait_for_selector(".shop-row")
     page.locator(".tabs button", has_text="Manage list").click()
-    page.wait_for_selector("h2:text-is('Add items')")
+    page.wait_for_selector("summary:text-is('Add items')")
 
     # ---- store layout ----
     page.get_by_text("Stores", exact=True).click()
@@ -345,7 +346,7 @@ with sync_playwright() as p:
     check("coverage and the not-priced items are shown", "items priced" in page.locator(".trip-head").first.inner_text() or "No price data yet" in page.locator(".trip-head").first.inner_text())
     page.screenshot(path="/tmp/shots/09b-compare.png", full_page=True)
     page.locator(".tabs button", has_text="Manage list").click()
-    page.wait_for_selector("h2:text-is('Add items')")
+    page.wait_for_selector("summary:text-is('Add items')")
 
 
     # ---- past items: one compact row, plus item editor ----
@@ -473,7 +474,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Admin", exact=True).click()
     page.get_by_role("button", name="Modules", exact=True).click()
     page.wait_for_selector("text=Price comparison")
-    check("Admin > Modules lists both bundled modules as running", page.locator("section.card .chip", has_text="Running").count() == 2)
+    check("Admin > Modules lists the bundled modules (two features and the Hebrew language) as running", page.locator("section.card .chip", has_text="Running").count() == 3)
     check("Admin > Modules shows module sections (price comparison cache setting)", page.locator("section.card:has(h2:text-is('Compare prices')) input[type=number]").count() == 1)
     page.screenshot(path="/tmp/shots/11-admin-modules.png", full_page=True)
     page.locator("input[type=file]").set_input_files("/tmp/sample-module.zip")
@@ -496,6 +497,60 @@ with sync_playwright() as p:
     page.screenshot(path="/tmp/shots/11b-admin-modules-upload.png", full_page=True)
     page.get_by_role("button", name="Lists", exact=True).click()
     page.wait_for_selector(".shop-row, .list-card")
+
+    # ---- 1.3.1: Manage list layout, collapsible sections, language module, content direction ----
+    def open_manage():
+        page.get_by_role("button", name="Lists", exact=True).click()
+        page.wait_for_selector("button:has-text('Manage list'), .list-card")
+        if page.locator(".list-card").count():
+            page.locator(".list-card").first.click()
+            page.wait_for_selector("button:has-text('Manage list')")
+        page.get_by_role("button", name="Manage list").click()
+        page.wait_for_selector("details.card > summary")
+    sums = lambda: page.locator("details.card > summary").all_inner_texts()
+
+    page.get_by_role("button", name="Settings", exact=True).click()
+    langs = page.locator("label.field:has(> span:text-is('Language')) select option").all_inner_texts()
+    check("Settings language lists English and the Hebrew language module", langs == ["English", "\u05e2\u05d1\u05e8\u05d9\u05ea"], str(langs))
+    lay = page.locator("section.card", has=page.locator("h2:text-is('Manage list layout')"))
+    order = lay.locator("li .grow").all_inner_texts()
+    check("Manage list layout lists every section, module sections included, in the default order",
+          order[:6] == ["Add items", "On this list", "Add from past items", "Backup and move items (CSV)", "Categories and their order", "Stores"] and "Compare prices" in order[6:8], str(order))
+    for _ in range(5):
+        lay.get_by_label("Move up: Stores").click()
+    page.wait_for_timeout(700)
+    open_manage()
+    first = sums()
+    check("the chosen order is used in Manage list", first[0] == "Stores" and first[1] == "Add items", str(first[:3]))
+    page.reload()
+    open_manage()
+    check("...and it is kept on the server (survives a reload)", sums()[0] == "Stores", str(sums()[:2]))
+
+    add = page.locator("details.card", has=page.locator("summary:text-is('Add items')"))
+    check("sections that used to be always open start open", add.evaluate("e => e.open") is True)
+    add.locator("summary").click()
+    page.wait_for_timeout(900)
+    check("every section can be collapsed", add.evaluate("e => e.open") is False)
+    page.reload()
+    open_manage()
+    add = page.locator("details.card", has=page.locator("summary:text-is('Add items')"))
+    check("an open or closed section is remembered", add.evaluate("e => e.open") is False)
+    add.locator("summary").click()
+    page.wait_for_timeout(900)
+
+    check("Hebrew list content is right-to-left inside the English (left-to-right) interface",
+          page.evaluate("document.documentElement.dir") == "ltr" and page.evaluate("""() => { const el = [...document.querySelectorAll('.entry .name')].find(e => /[\\u0590-\\u05FF]/.test(e.textContent)); return el ? getComputedStyle(el).direction : null; }""") == "rtl")
+    check("text boxes follow the language of what is typed", page.locator("input[type=text][dir=auto]").count() >= 3)
+
+    page.get_by_role("button", name="Settings", exact=True).click()
+    lay = page.locator("section.card", has=page.locator("h2:text-is('Manage list layout')"))
+    lay.get_by_role("button", name="Reset to the default order").click()
+    page.wait_for_timeout(700)
+    open_manage()
+    check("Reset to the default order restores it", sums()[:2] == ["Add items", "On this list"], str(sums()[:2]))
+    page.screenshot(path="/tmp/shots/12-manage-collapsible.png", full_page=True)
+    page.get_by_role("button", name="Lists", exact=True).click()
+    page.wait_for_selector(".shop-row, .list-card, button:has-text('Manage list')")
 
     # ---- Hebrew + RTL ----
     page.get_by_role("button", name="Settings").click()

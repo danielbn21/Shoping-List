@@ -21,10 +21,19 @@ export function checkManifest(m, { coreVersion } = {}) {
   if (list('dependsOn').some((d) => !ID.test(d)) || list('optionalDepends').some((d) => !ID.test(d))) return fail('manifest_invalid', 'dependsOn');
   if (list('dependsOn').includes(m.id)) return fail('manifest_invalid', 'a module cannot depend on itself');
   if (list('slots').some((s) => !SLOTS.includes(s))) return fail('manifest_invalid', `slots must be among ${SLOTS.join(', ')}`);
-  for (const k of ['server', 'web', 'css', 'i18n']) {
+  for (const k of ['server', 'web', 'css', 'i18n', 'strings']) {
     if (m[k] !== undefined && (typeof m[k] !== 'string' || !FILE.test(m[k]) || m[k].includes('..') || m[k].startsWith('/'))) return fail('manifest_invalid', k);
   }
   if (kind === 'feature' && !m.server && !m.web) return fail('manifest_invalid', 'a feature module needs server and/or web');
+  if (kind === 'language') {
+    // A language module is data only: a translation file plus how the language is named and written.
+    if (typeof m.code !== 'string' || !/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(m.code) || m.code === 'en') return fail('manifest_invalid', 'code: a language code such as fr or pt-BR (en is built in)');
+    if (typeof m.nativeName !== 'string' || !m.nativeName.trim() || m.nativeName.length > 40) return fail('manifest_invalid', 'nativeName');
+    if (!['ltr', 'rtl'].includes(m.dir)) return fail('manifest_invalid', 'dir must be ltr or rtl');
+    if (m.locale !== undefined && (typeof m.locale !== 'string' || !/^[A-Za-z0-9-]{2,20}$/.test(m.locale))) return fail('manifest_invalid', 'locale');
+    if (!m.strings) return fail('manifest_invalid', 'a language module needs a strings file');
+    if (m.server || m.web) return fail('manifest_invalid', 'a language module has no server or web code');
+  }
   if (m.requires !== undefined && (typeof m.requires !== 'object' || (m.requires.core !== undefined && typeof m.requires.core !== 'string'))) return fail('manifest_invalid', 'requires');
   if (coreVersion && !satisfies(coreVersion, m.requires?.core ?? '*')) return fail('core_incompatible', `needs core ${m.requires.core}, this is ${coreVersion}`);
   return {
@@ -34,7 +43,8 @@ export function checkManifest(m, { coreVersion } = {}) {
       author: typeof m.author === 'string' ? m.author.slice(0, 80) : '',
       requires: { core: m.requires?.core ?? '*' }, dependsOn: list('dependsOn'), optionalDepends: list('optionalDepends'),
       provides: list('provides'), slots: list('slots'),
-      server: m.server ?? null, web: m.web ?? null, css: m.css ?? null, i18n: m.i18n ?? null,
+      server: m.server ?? null, web: m.web ?? null, css: m.css ?? null, i18n: m.i18n ?? null, strings: m.strings ?? null,
+      ...(kind === 'language' ? { code: m.code, nativeName: m.nativeName.trim(), dir: m.dir, locale: m.locale ?? m.code } : {}),
     },
   };
 }

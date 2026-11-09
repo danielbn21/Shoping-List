@@ -36,7 +36,7 @@ export default async function authRoutes(app) {
     if (!pwOk(b.password)) return bad(reply, 'password_short');
     const hash = await hashPassword(b.password);
     const uid = db.transaction(() => {
-      const id = createUser(db, { username: b.username, name, email: b.email, passwordHash: hash, role: 'admin', language: b.language === 'he' ? 'he' : 'en' });
+      const id = createUser(db, { username: b.username, name, email: b.email, passwordHash: hash, role: 'admin', language: app.modules.languageCodes().includes(b.language) ? b.language : 'en' });
       createHousehold(db, cleanName(b.householdName) || `${name}`, id);
       audit(db, id, 'setup.admin_created', b.username);
       return id;
@@ -88,7 +88,7 @@ export default async function authRoutes(app) {
     if (b.email && db.prepare('SELECT 1 FROM users WHERE email = ?').get(b.email)) return bad(reply, 'email_taken', 409);
     const hash = await hashPassword(b.password);
     const uid = db.transaction(() => {
-      const id = createUser(db, { username: b.username, name, email: b.email, passwordHash: hash, language: b.language === 'he' ? 'he' : 'en' });
+      const id = createUser(db, { username: b.username, name, email: b.email, passwordHash: hash, language: app.modules.languageCodes().includes(b.language) ? b.language : 'en' });
       if (invite && invite.scope === 'household') {
         db.prepare("INSERT INTO household_members(household_id, user_id, role) VALUES (?,?,'member')").run(invite.household_id, id);
       } else {
@@ -154,6 +154,26 @@ export default async function authRoutes(app) {
   // ---- profile ----
   app.get('/api/me', { preHandler: app.auth({ allowPending: true }) }, async (req) => ({ user: app.userPayload(req.user) }));
 
+  // Interface preferences that follow the user across devices: the order of the Manage list sections and which are left open.
+  // Send only the keys to change; null removes a key.
+  const KEY = /^[A-Za-z0-9_.:-]{1,80}$/;
+  app.put('/api/me/prefs', { preHandler: app.auth() }, async (req, reply) => {
+    const b = req.body || {};
+    const cur = (() => { try { return JSON.parse(req.user.ui_prefs || '{}'); } catch { return {}; } })();
+    if (b.manageOrder !== undefined) {
+      if (b.manageOrder === null) delete cur.manageOrder;
+      else if (!Array.isArray(b.manageOrder) || b.manageOrder.length > 40 || b.manageOrder.some((k) => typeof k !== 'string' || !KEY.test(k)) || new Set(b.manageOrder).size !== b.manageOrder.length) return bad(reply, 'invalid_value');
+      else cur.manageOrder = b.manageOrder;
+    }
+    if (b.manageOpen !== undefined) {
+      if (b.manageOpen === null) delete cur.manageOpen;
+      else if (typeof b.manageOpen !== 'object' || Array.isArray(b.manageOpen) || Object.keys(b.manageOpen).length > 60 || Object.entries(b.manageOpen).some(([k, v]) => !KEY.test(k) || typeof v !== 'boolean')) return bad(reply, 'invalid_value');
+      else cur.manageOpen = { ...(cur.manageOpen || {}), ...b.manageOpen };
+    }
+    db.prepare('UPDATE users SET ui_prefs = ? WHERE id = ?').run(JSON.stringify(cur), req.user.id);
+    return { user: app.userPayload(db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id)) };
+  });
+
   app.patch('/api/me', { preHandler: app.auth() }, async (req, reply) => {
     const b = req.body || {};
     const sets = [], vals = [];
@@ -163,7 +183,7 @@ export default async function authRoutes(app) {
       if (b.email && db.prepare('SELECT 1 FROM users WHERE email = ? AND id != ?').get(b.email, req.user.id)) return bad(reply, 'email_taken', 409);
       sets.push('email = ?'); vals.push(b.email || null);
     }
-    if (b.language !== undefined) { if (!['en', 'he'].includes(b.language)) return bad(reply, 'invalid_value'); sets.push('language = ?'); vals.push(b.language); }
+    if (b.language !== undefined) { if (!app.modules.languageCodes().includes(b.language)) return bad(reply, 'invalid_value'); sets.push('language = ?'); vals.push(b.language); }
     if (b.theme !== undefined) { if (!['system', 'light', 'dark'].includes(b.theme)) return bad(reply, 'invalid_value'); sets.push('theme = ?'); vals.push(b.theme); }
     if (b.colorTheme !== undefined) { if (!['green', 'blue', 'plum', 'orange'].includes(b.colorTheme)) return bad(reply, 'invalid_value'); sets.push('color_theme = ?'); vals.push(b.colorTheme); }
     if (b.currency !== undefined) {

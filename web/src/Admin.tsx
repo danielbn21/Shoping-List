@@ -93,7 +93,7 @@ function Users({ me }: { me: Me }) {
         <form className="card stack" onSubmit={create}>
           <h2>{t('addUser')}</h2>
           <label className="field"><span>{t('name')}</span>
-            <input type="text" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></label>
+            <input type="text" dir="auto" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></label>
           <label className="field"><span>{t('username')}</span>
             <input type="text" dir="ltr" required autoCapitalize="none" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} /></label>
           <label className="field"><span>{t('emailOptional')}</span>
@@ -119,7 +119,7 @@ function Users({ me }: { me: Me }) {
         <article className="card user-card" key={u.id}>
           <div className="row between">
             <div className="grow">
-              <h3>{u.name} <span className="muted" dir="ltr">@{u.username}</span></h3>
+              <h3><bdi>{u.name}</bdi> <span className="muted" dir="ltr">@{u.username}</span></h3>
               <p className="muted">{u.lastSeenAt ? t('lastSeen', { when: timeAgo(u.lastSeenAt) }) : t('neverSeen')}</p>
             </div>
             <div className="chips">

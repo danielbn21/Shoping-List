@@ -10,6 +10,8 @@ import { catName, fmt } from './util';
 import { SortableList, SortableRow, useDndSensors } from './dnd';
 import type { Cat, Detail, Entry, Me, PastItem, Store } from './types';
 import { useSlots } from './slots';
+import Section from './Section';
+import { orderSections, usePrefs } from './prefs';
 
 type Props = { data: Detail; me: Me; reload: () => Promise<void>; onDeleted: () => void };
 
@@ -17,27 +19,26 @@ type Props = { data: Detail; me: Me; reload: () => Promise<void>; onDeleted: () 
 export default function ManageTab({ data, me, reload, onDeleted }: Props) {
   const isOwner = data.list.role === 'owner';
   const moduleSections = useSlots('manage.section', { me, data }); // sections added by modules
+  const saved = usePrefs().manageOrder;
+  // Every section is collapsible; the user chooses their order in Settings (module sections take part under "<module>:<id>").
+  const sections: Record<string, { title: string; node: ReactNode } | null> = {
+    add: { title: t('addItems'), node: <AddItem data={data} reload={reload} /> },
+    onlist: { title: t('onThisList'), node: <OnThisList data={data} reload={reload} /> },
+    past: { title: t('fromHistory'), node: <PastItems data={data} reload={reload} /> },
+    csv: { title: t('csvTitle'), node: <CsvCard data={data} reload={reload} /> },
+    categories: { title: t('categoriesOrder'), node: <CategoriesCard data={data} reload={reload} /> },
+    stores: { title: t('stores'), node: <StoresCard data={data} reload={reload} /> },
+    people: isOwner ? { title: t('people'), node: <PeopleCard data={data} /> } : null,
+    listsettings: isOwner ? { title: t('listNameLabel'), node: <ListSettings data={data} reload={reload} onDeleted={onDeleted} /> } : null,
+  };
+  for (const m of moduleSections) sections[`${m.moduleId}:${m.id}`] = { title: m.title(), node: <m.component data={data} me={me} reload={reload} /> };
   return (
     <div className="stack">
-      <AddItem data={data} reload={reload} />
-      <OnThisList data={data} reload={reload} />
-      <PastItems data={data} reload={reload} />
-      <Collapsible title={t('csvTitle')}><CsvCard data={data} reload={reload} /></Collapsible>
-      <Collapsible title={t('categoriesOrder')}><CategoriesCard data={data} reload={reload} /></Collapsible>
-      <Collapsible title={t('stores')}><StoresCard data={data} reload={reload} /></Collapsible>
-      {moduleSections.map((m) => <Collapsible key={`${m.moduleId}:${m.id}`} title={m.title()}><m.component data={data} me={me} reload={reload} /></Collapsible>)}
-      {isOwner && <Collapsible title={t('people')}><PeopleCard data={data} /></Collapsible>}
-      {isOwner && <Collapsible title={t('listNameLabel')}><ListSettings data={data} reload={reload} onDeleted={onDeleted} /></Collapsible>}
+      {orderSections(moduleSections.map((m) => `${m.moduleId}:${m.id}`), saved).map((id) => {
+        const s = sections[id];
+        return s ? <Section key={id} id={id} title={s.title}>{s.node}</Section> : null;
+      })}
     </div>
-  );
-}
-
-function Collapsible({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <details className="card">
-      <summary style={{ fontWeight: 800, cursor: 'pointer', minHeight: 32, fontSize: '1.1rem' }}>{title}</summary>
-      <div className="stack-sm" style={{ marginTop: 12 }}>{children}</div>
-    </details>
   );
 }
 
@@ -108,16 +109,15 @@ function AddItem({ data, reload }: { data: Detail; reload: () => Promise<void> }
   const name = q.trim();
 
   return (
-    <form className="card stack-sm" onSubmit={submit}>
-      <h2>{t('addItems')}</h2>
+    <form className="stack-sm" onSubmit={submit}>
       <label className="field"><span>{t('itemLabel')}</span>
-        <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('addItemPlaceholder')} autoComplete="off" enterKeyHint="done" style={{ minHeight: 52, fontSize: '1.05rem' }} />
+        <input type="text" dir="auto" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('addItemPlaceholder')} autoComplete="off" enterKeyHint="done" style={{ minHeight: 52, fontSize: '1.05rem' }} />
       </label>
 
       {similar && (
         <div className="suggest" role="alert">
           <p style={{ fontWeight: 700 }}>{t('didYouMean')}</p>
-          {similar.map((m) => <button type="button" className="similar" key={m.id} onClick={() => post({ itemId: m.id, source: 'typeahead' })}>{m.name}</button>)}
+          {similar.map((m) => <button type="button" className="similar" key={m.id} onClick={() => post({ itemId: m.id, source: 'typeahead' })} dir="auto">{m.name}</button>)}
           <button type="button" className="new" onClick={() => post({ name, force: true })}>{t('addAsNew', { name })}</button>
         </div>
       )}
@@ -125,7 +125,7 @@ function AddItem({ data, reload }: { data: Detail; reload: () => Promise<void> }
         <div className="suggest">
           {sugg.map((s) => (
             <button type="button" key={s.id} onClick={() => post({ itemId: s.id, source: 'typeahead' })}>
-              <span>{s.name}</span>
+              <span dir="auto">{s.name}</span>
               {s.onListQty > 0 && <span className="chip warn">{t('onListQty', { n: fmt(s.onListQty) })}</span>}
             </button>
           ))}
@@ -148,13 +148,13 @@ function AddItem({ data, reload }: { data: Detail; reload: () => Promise<void> }
       </label>
       {creatingCat && (
         <div className="inline-form">
-          <input type="text" autoFocus value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder={t('newCategoryName')} aria-label={t('newCategoryName')}
+          <input type="text" dir="auto" autoFocus value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder={t('newCategoryName')} aria-label={t('newCategoryName')}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createCategory(); } }} />
           <button type="button" className="btn" onClick={createCategory} disabled={!newCat.trim()}>{t('createCategory')}</button>
         </div>
       )}
       <label className="field"><span>{t('noteLabel')}</span>
-        <input type="text" value={note} onChange={(e) => setNote(e.target.value)} />
+        <input type="text" dir="auto" value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
       {error && <p className="error" role="alert">{error}</p>}
     </form>
@@ -170,7 +170,7 @@ function Group({ id, title, count, show, children }: { id: string; title: string
   if (!show) return null;
   return (
     <section ref={setNodeRef} className={`group${isOver ? ' over' : ''}`}>
-      <div className="section-title"><span>{title}</span><span>{count}</span></div>
+      <div className="section-title"><span dir="auto">{title}</span><span>{count}</span></div>
       <div className="group-body">{children}</div>
     </section>
   );
@@ -263,8 +263,7 @@ function OnThisList({ data, reload }: { data: Detail; reload: () => Promise<void
   };
 
   return (
-    <section className="card stack-sm">
-      <h2>{t('onThisList')}</h2>
+    <div className="stack-sm">
       <p className="muted">{t('manageHint')}</p>
       {error && <p className="error" role="alert">{error}</p>}
       {open.length === 0 && !dragging && <p className="muted">{t('emptyManage')}</p>}
@@ -285,8 +284,8 @@ function OnThisList({ data, reload }: { data: Detail; reload: () => Promise<void
                         <>
                           {handle}
                           <div className="grow">
-                            <div className="name">{e.name}</div>
-                            {e.note && !editing && <div className="muted">{e.note}</div>}
+                            <div className="name" dir="auto">{e.name}</div>
+                            {e.note && !editing && <div className="muted" dir="auto">{e.note}</div>}
                           </div>
                           <div className="ctrls">
                             <Stepper value={e.quantity} onChange={(n) => run(() => api(`/entries/${e.id}`, { method: 'PATCH', body: { quantity: n } }))} />
@@ -297,7 +296,7 @@ function OnThisList({ data, reload }: { data: Detail; reload: () => Promise<void
                           {editing && (
                             <div className="edit-panel">
                               <label className="field"><span>{t('noteLabel')}</span>
-                                <input type="text" defaultValue={e.note ?? ''}
+                                <input type="text" dir="auto" defaultValue={e.note ?? ''}
                                   onBlur={(ev) => { if (ev.target.value !== (e.note ?? '')) run(() => api(`/entries/${e.id}`, { method: 'PATCH', body: { note: ev.target.value } })); }} /></label>
                               <label className="field"><span>{t('categoryLabel')}</span>
                                 <select value={e.categoryId ?? ''} onChange={(ev) => run(() => api(`/entries/${e.id}`, { method: 'PATCH', body: { categoryId: ev.target.value ? Number(ev.target.value) : null } }))}>
@@ -316,7 +315,7 @@ function OnThisList({ data, reload }: { data: Detail; reload: () => Promise<void
           );
         })}
       </DndContext>
-    </section>
+    </div>
   );
 }
 
@@ -349,9 +348,9 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
   const shown = (items ?? []).filter((i) => (filter === '' ? true : filter === 'none' ? i.categoryId === null : i.categoryId === Number(filter)));
 
   return (
-    <section className="card stack-sm">
-      <div><h2>{t('fromHistory')}</h2><p className="muted">{t('pastHelp')}</p></div>
-      <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('searchBank')} aria-label={t('searchBank')} style={{ minHeight: 48 }} />
+    <div className="stack-sm">
+      <p className="muted">{t('pastHelp')}</p>
+      <input type="search" dir="auto" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('searchBank')} aria-label={t('searchBank')} style={{ minHeight: 48 }} />
       <div className="row">
         <select className="grow" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label={t('categoryLabel')}>
           <option value="">{t('allCategories')}</option>
@@ -375,9 +374,9 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
           return (
             <div className="past" key={i.id}>
               <div className="past-row">
-                <div className="past-name" title={`${i.name} · ${full}`}>
+                <div className="past-name" dir="auto" title={`${i.name} · ${full}`}>
                   <span className="past-top">
-                    <strong>{i.name}</strong>
+                    <strong dir="auto">{i.name}</strong>
                     {i.onListQty > 0 && <span className="onlist" aria-label={t('onListQty', { n: fmt(i.onListQty) })}>×{fmt(i.onListQty)}</span>}
                   </span>
                   <small className="muted">{caption}</small>
@@ -396,7 +395,7 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
           );
         })}
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -418,14 +417,14 @@ function ItemEditor({ item, categories, onSaved, onCancel }: { item: PastItem; c
   return (
     <form className="edit-panel past-edit" onSubmit={submit}>
       <label className="field"><span>{t('itemLabel')}</span>
-        <input type="text" required value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <input type="text" dir="auto" required value={name} onChange={(e) => setName(e.target.value)} /></label>
       <label className="field"><span>{t('categoryLabel')}</span>
         <select value={cat} onChange={(e) => setCat(e.target.value)}>
           <option value="">{t('uncategorized')}</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{catName(c)}</option>)}
         </select></label>
       <label className="field"><span>{t('defaultNote')}</span>
-        <input type="text" value={note} onChange={(e) => setNote(e.target.value)} />
+        <input type="text" dir="auto" value={note} onChange={(e) => setNote(e.target.value)} />
         <span className="muted" style={{ fontWeight: 400 }}>{t('itemEditorHint')}</span></label>
       <label className="field"><span>{t('priceOptional')}</span>
         <input type="number" inputMode="decimal" min="0" step="0.01" dir="ltr" value={price} onChange={(e) => setPrice(e.target.value)} /></label>
@@ -465,7 +464,7 @@ function CategoriesCard({ data, reload }: { data: Detail; reload: () => Promise<
             {handle}
             {renaming === c.id ? (
               <form className="inline-form grow" onSubmit={(e) => { e.preventDefault(); run(async () => { await api(`/categories/${c.id}`, { method: 'PATCH', body: he ? { nameHe: text } : { nameEn: text } }); setRenaming(null); }); }}>
-                <input type="text" autoFocus value={text} onChange={(e) => setText(e.target.value)} aria-label={t('rename')} />
+                <input type="text" dir="auto" autoFocus value={text} onChange={(e) => setText(e.target.value)} aria-label={t('rename')} />
                 <button className="btn small" type="submit">{t('save')}</button>
               </form>
             ) : (
@@ -483,7 +482,7 @@ function CategoriesCard({ data, reload }: { data: Detail; reload: () => Promise<
         if (!newName.trim()) return;
         run(async () => { await api(`/households/${hid}/categories`, { method: 'POST', body: he ? { nameHe: newName } : { nameEn: newName } }); setNewName(''); });
       }}>
-        <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t('newCategoryName')} aria-label={t('newCategoryName')} />
+        <input type="text" dir="auto" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t('newCategoryName')} aria-label={t('newCategoryName')} />
         <button className="btn small" type="submit">{t('addCategory')}</button>
       </form>
     </>
@@ -518,7 +517,7 @@ function StoresCard({ data, reload }: { data: Detail; reload: () => Promise<void
       {error && <p className="error" role="alert">{error}</p>}
       {data.stores.map((s) => (
         <details key={s.id} className="store">
-          <summary>{s.name}</summary>
+          <summary dir="auto">{s.name}</summary>
           <StoreLayout store={s} categories={data.categories} reload={reload} />
           <div style={{ marginTop: 8 }}>
             <button className="btn small danger" onClick={() => { if (confirm(t('confirmDeleteStore', { name: s.name }))) run(() => api(`/stores/${s.id}`, { method: 'DELETE' })); }}>{t('deleteStore')}</button>
@@ -526,7 +525,7 @@ function StoresCard({ data, reload }: { data: Detail; reload: () => Promise<void
         </details>
       ))}
       <form className="inline-form" onSubmit={(e) => { e.preventDefault(); if (name.trim()) run(async () => { await api(`/households/${hid}/stores`, { method: 'POST', body: { name } }); setName(''); }); }}>
-        <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('storeName')} aria-label={t('storeName')} />
+        <input type="text" dir="auto" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('storeName')} aria-label={t('storeName')} />
         <button className="btn small" type="submit">{t('addStore')}</button>
       </form>
     </>
@@ -552,7 +551,7 @@ function PeopleCard({ data }: { data: Detail }) {
       {error && <p className="error" role="alert">{error}</p>}
       {people.map((p) => (
         <div className="row between" key={p.userId}>
-          <span>{p.name}</span>
+          <span dir="auto">{p.name}</span>
           {p.locked ? <span className="chip">{label(p.role)}</span> : (
             <select value={p.role} aria-label={p.name} onChange={async (e) => {
               setError('');
@@ -580,7 +579,7 @@ function ListSettings({ data, reload, onDeleted }: { data: Detail; reload: () =>
         e.preventDefault(); setError(''); setSaved(false);
         try { await api(`/lists/${data.list.id}`, { method: 'PATCH', body: { name } }); await reload(); setSaved(true); } catch (err) { setError(errText(err)); }
       }}>
-        <input type="text" value={name} onChange={(e) => setName(e.target.value)} aria-label={t('listNameLabel')} required />
+        <input type="text" dir="auto" value={name} onChange={(e) => setName(e.target.value)} aria-label={t('listNameLabel')} required />
         <button className="btn small" type="submit">{t('saveName')}</button>
       </form>
       {saved && <p className="ok" role="status">{t('saved')}</p>}

@@ -1,23 +1,26 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from './api';
-import { t, setLang, detectLang, type Lang } from './i18n';
+import { t, setLang } from './i18n';
 import type { Cfg, Me } from './types';
 import { AuthScreens, ChangePasswordScreen } from './Auth';
 import Home from './Home';
 import Settings from './Settings';
 import Admin from './Admin';
 import { syncModules } from './modules';
+import { initPrefs } from './prefs';
 
 type State = { kind: 'loading' } | { kind: 'offline' } | { kind: 'ready'; cfg: Cfg; me: Me | null };
 type View = 'home' | 'settings' | 'admin';
 
 export default function App() {
   const [state, setState] = useState<State>({ kind: 'loading' });
-  const [lang, setLangState] = useState<Lang>(detectLang());
+  const [, setLangTick] = useState(0); // redraw when a language module has been loaded or removed
   const [view, setView] = useState<View>('home');
 
+  // English until the user is known; then the user's language (English too if its module is missing or switched off).
   // Set synchronously so every child renders in the right language and direction.
-  setLang(lang);
+  const me0 = state.kind === 'ready' ? state.me : null;
+  setLang(me0?.language ?? 'en');
 
   const load = useCallback(async () => {
     try {
@@ -28,6 +31,8 @@ export default function App() {
       } catch (e) {
         if (!(e instanceof ApiError)) throw e; // 401 = not signed in
       }
+      // Language modules are loaded before the first screen, so a Hebrew user never sees an English flash.
+      if (me) await syncModules(me.modules);
       setState({ kind: 'ready', cfg, me });
     } catch {
       setState({ kind: 'offline' });
@@ -37,12 +42,11 @@ export default function App() {
   useEffect(() => { load(); }, [load]);
 
   const me = state.kind === 'ready' ? state.me : null;
-  useEffect(() => { if (me) setLangState(me.language); }, [me?.language]);
-  useEffect(() => { localStorage.setItem('sl_lang', lang); }, [lang]);
   useEffect(() => { document.documentElement.dataset.theme = me?.theme ?? 'system'; }, [me?.theme]);
-  useEffect(() => { document.title = t('appName'); }, [lang]);
+  useEffect(() => { initPrefs(me?.prefs); }, [me?.prefs]);
+  useEffect(() => { document.title = t('appName'); }, [me?.language, me?.modules]);
   // Modules the user may use and has switched on add their screens here; one that is switched off is taken away again.
-  useEffect(() => { syncModules(me?.modules ?? []); }, [me?.modules]);
+  useEffect(() => { syncModules(me?.modules ?? []).then(() => setLangTick((n) => n + 1)); }, [me?.modules]);
 
   const logout = async () => {
     try { await api('/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
@@ -66,7 +70,7 @@ export default function App() {
 
   const { cfg } = state;
   if (!me) {
-    return <AuthScreens cfg={cfg} lang={lang} setLang={setLangState} onDone={load} />;
+    return <AuthScreens cfg={cfg} onDone={load} />;
   }
   if (me.mustChangePassword) {
     return <ChangePasswordScreen cfg={cfg} forced onDone={load} onLogout={logout} />;

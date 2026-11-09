@@ -366,6 +366,8 @@ CREATE TABLE module_access (
   PRIMARY KEY (user_id, module_id)
 );
 `,
+// 8: per-user interface preferences as JSON (1.3.1): the order of the Manage list sections and which sections are left open.
+`ALTER TABLE users ADD COLUMN ui_prefs TEXT NOT NULL DEFAULT '{}';`,
 ];
 
 export function openDb(dataDir) {

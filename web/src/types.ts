@@ -1,12 +1,13 @@
 import type { Lang } from './i18n';
 
 export type Household = { id: number; name: string; role: 'owner' | 'member' };
-export type MeModule = { id: string; name: string; kind: string; version: string; description: string; on: boolean; slots: string[]; web: string | null; css: string | null; i18n: string | null };
+export type MeModule = { id: string; name: string; kind: string; version: string; description: string; on: boolean; slots: string[]; web: string | null; css: string | null; i18n: string | null; lang?: { code: string; nativeName: string; dir: 'ltr' | 'rtl'; locale: string }; strings?: string };
 export type Me = {
   id: number; username: string; email: string | null; name: string; role: 'admin' | 'user';
   language: Lang; theme: 'system' | 'light' | 'dark'; colorTheme: string; showAddedBy: boolean;
   mustChangePassword: boolean; households: Household[]; canCreateHousehold: boolean;
   currency: string | null;
+  prefs: { manageOrder?: string[]; manageOpen?: Record<string, boolean> };   // interface preferences that follow the user
   modules: MeModule[];       // the modules this user may use (granted by the admin), each with the user's own on/off switch
   capabilities: string[];    // what those modules provide right now, e.g. 'receipt-reader'
 };

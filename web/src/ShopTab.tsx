@@ -60,8 +60,8 @@ export default function ShopTab({ data, me, onToggle, onFinish }: Props) {
       aria-label={`${done ? t('putBack') : t('markBought')}: ${e.name}`}>
       <span className="tick" aria-hidden="true" />
       <span className="grow">
-        <span className="name">{e.name}</span>
-        {e.note && <span className="muted" style={{ display: 'block' }}>{e.note}</span>}
+        <span className="name" dir="auto">{e.name}</span>
+        {e.note && <span className="muted" dir="auto" style={{ display: 'block' }}>{e.note}</span>}
         {me.showAddedBy && e.addedByName && <span className="muted" style={{ display: 'block' }}>{t('addedBy', { name: e.addedByName })}</span>}
       </span>
       {(e.quantity !== 1 || e.unit) && <span className="qtybadge">×{fmt(e.quantity)}{e.unit ? ` ${e.unit}` : ''}</span>}
@@ -71,7 +71,7 @@ export default function ShopTab({ data, me, onToggle, onFinish }: Props) {
   return (
     <div className="stack-sm">
       <div className="addrow">
-        <input type="search" className="grow" style={{ minHeight: 48 }} value={search} onChange={(e) => setSearch(e.target.value)}
+        <input type="search" dir="auto" className="grow" style={{ minHeight: 48 }} value={search} onChange={(e) => setSearch(e.target.value)}
           placeholder={t('searchList')} aria-label={t('searchList')} />
         {stores.length > 0 && (
           <select aria-label={t('orderBy')} style={{ maxWidth: 190 }} value={storeId}
@@ -92,7 +92,7 @@ export default function ShopTab({ data, me, onToggle, onFinish }: Props) {
 
       {groups.map((g) => (
         <section key={g.key}>
-          <div className="section-title"><span>{g.title}</span><span>{g.items.length}</span></div>
+          <div className="section-title"><span dir="auto">{g.title}</span><span>{g.items.length}</span></div>
           {g.items.map((e) => row(e, false))}
         </section>
       ))}

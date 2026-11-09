@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
 import ModulesUser from './ModulesUser';
+import ManageLayout from './ManageLayout';
 import { ModuleSettingsSections } from './ModuleSections';
-import { t, errText, timeAgo, type Lang } from './i18n';
+import { t, errText, timeAgo, availableLanguages } from './i18n';
 import { CURRENCIES, currencyName, detectCurrency } from './money';
 import type { Cfg, Me } from './types';
 
@@ -48,7 +49,7 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
       <form className="card stack" onSubmit={saveProfile}>
         <h2>{t('profile')}</h2>
         <label className="field"><span>{t('name')}</span>
-          <input type="text" value={name} onChange={(e) => setName(e.target.value)} required /></label>
+          <input type="text" dir="auto" value={name} onChange={(e) => setName(e.target.value)} required /></label>
         <label className="field"><span>{t('email')}</span>
           <input type="email" dir="ltr" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
         <div className="row">
@@ -60,9 +61,8 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
 
       <section className="card stack">
         <label className="field"><span>{t('language')}</span>
-          <select value={me.language} onChange={(e) => patch({ language: e.target.value as Lang })}>
-            <option value="en">English</option>
-            <option value="he">עברית</option>
+          <select value={me.language} onChange={(e) => patch({ language: e.target.value })}>
+            {availableLanguages().map((l) => <option key={l.code} value={l.code} lang={l.code}>{l.nativeName}</option>)}
           </select></label>
         <label className="field"><span>{t('theme')}</span>
           <select value={me.theme} onChange={(e) => patch({ theme: e.target.value })}>
@@ -91,6 +91,8 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
           {pwErr && <span className="error" role="alert">{pwErr}</span>}
         </div>
       </form>
+
+      <ManageLayout me={me} />
 
       <ModuleSettingsSections me={me} onChange={onChange} />
 

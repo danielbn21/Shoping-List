@@ -73,7 +73,7 @@ export default function CompareTab({ data, reload }: { data: Detail; reload: () 
                   ? <p className="muted" style={{ margin: 0 }}>{t('compareAllPriced')}</p>
                   : <>
                     <h3 style={{ margin: 0 }}>{t('compareMissing', { n: r.missing.length })}</h3>
-                    <ul className="plain">{r.missing.map((m) => <li key={m.itemId}>{m.name}{m.quantity !== 1 ? ` × ${m.quantity}` : ''}</li>)}</ul>
+                    <ul className="plain">{r.missing.map((m) => <li key={m.itemId} dir="auto">{m.name}{m.quantity !== 1 ? ` × ${m.quantity}` : ''}</li>)}</ul>
                   </>}
               </div>
             )}
