@@ -97,3 +97,7 @@ export function findReceiptMatch(name, items, { strictness = 'normal' } = {}) {
   }
   return best ? best.item : null;
 }
+
+// Receipt readers sometimes return Hebrew in visual order; this reverses each Hebrew run so both variants can be matched.
+const HEB_RUN = /[\u0590-\u05FF](?:[\u0590-\u05FF\s"'\u05F3\u05F4.\-%]*[\u0590-\u05FF])?/g;
+export const reverseHebrewRuns = (s) => String(s).replace(HEB_RUN, (r) => [...r].reverse().join(''));

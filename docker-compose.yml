@@ -1,7 +1,10 @@
 services:
   shoplist:
     build: .
-    container_name: Deltos-shoplist
+    # Build on this server by default. To run the published image instead, set SHOPLIST_IMAGE and SHOPLIST_TAG in .env
+    # (see README), then: docker compose pull && docker compose up -d
+    image: ${SHOPLIST_IMAGE:-shoplist}:${SHOPLIST_TAG:-latest}
+    container_name: shoplist
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-3000}:3000"   # change with HOST_PORT=3010 if 3000 is taken; point NPM at this port

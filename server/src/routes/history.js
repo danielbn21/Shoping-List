@@ -1,11 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { audit, cleanName, getSetting, userPayload } from '../util.js';
+import { audit, cleanName, getSetting } from '../util.js';
 import { makeAccess } from '../access.js';
 import { addToList } from '../entries.js';
-import { normalize, findReceiptMatch, isHebrew } from '../match.js';
-import { reverseHebrewRuns, PROVIDERS } from '../ocr.js';
+import { normalize, findReceiptMatch, isHebrew, reverseHebrewRuns } from '../match.js';
 import { toCsv } from '../csv.js';
 
 const bad = (reply, error, code = 400) => reply.code(code).send({ error });
@@ -162,8 +161,10 @@ export default async function historyRoutes(app) {
     fs.writeFileSync(path.join(app.dataDir, 'receipts', rel), buf);
     const id = Number(db.prepare('INSERT INTO receipts(trip_id, household_id, file, mime, uploaded_by, uploaded_at) VALUES (?,?,?,?,?,?)')
       .run(ta.trip.id, ta.trip.household_id, rel, kind.mime, req.user.id, Date.now()).lastInsertRowid);
-    if (getSetting(db, 'ocr_enabled')) app.ocr.enqueue(id, req.user.id);
-    return { id, ocrStatus: getSetting(db, 'ocr_enabled') ? 'pending' : 'none' };
+    // Reading a receipt is done by whichever enabled module provides the 'receipt-reader' capability for this user.
+    const canRead = !!app.modules.providerFor('receipt-reader', req.user.id);
+    if (canRead) app.receipts.enqueue(id, req.user.id);
+    return { id, ocrStatus: canRead ? 'pending' : 'none' };
   });
 
   app.get('/api/receipts/:id/image', pre, async (req, reply) => {
@@ -185,9 +186,9 @@ export default async function historyRoutes(app) {
   app.post('/api/receipts/:id/scan', pre, async (req, reply) => {
     const ra = receiptAccess(req.user, Number(req.params.id));
     if (!ra) return bad(reply, 'not_found', 404);
-    if (!getSetting(db, 'ocr_enabled')) return bad(reply, 'ocr_disabled', 403);
+    if (!app.modules.providerFor('receipt-reader', req.user.id)) return bad(reply, 'ocr_disabled', 403);
     const engine = ['local', 'cloud'].includes((req.body || {}).engine) ? req.body.engine : undefined;
-    app.ocr.enqueue(ra.receipt.id, req.user.id, engine);
+    app.receipts.enqueue(ra.receipt.id, req.user.id, engine);
     return { ocrStatus: 'pending' };
   });
 
@@ -299,26 +300,5 @@ export default async function historyRoutes(app) {
     }
     return reply.header('Content-Type', 'text/csv; charset=utf-8')
       .header('Content-Disposition', `attachment; filename="purchases-${new Date().toISOString().slice(0, 10)}.csv"`).send(toCsv(out));
-  });
-
-  // ---------- my OCR settings (cloud API key is stored encrypted, never returned) ----------
-  app.put('/api/me/ocr', pre, async (req, reply) => {
-    const b = req.body || {};
-    const cur = db.prepare('SELECT * FROM user_ocr WHERE user_id = ?').get(req.user.id);
-    const engine = b.engine ?? cur?.engine ?? 'auto';
-    if (!['auto', 'local', 'cloud'].includes(engine)) return bad(reply, 'invalid_value');
-    const provider = b.provider ?? cur?.provider ?? 'anthropic';
-    if (!PROVIDERS[provider]) return bad(reply, 'invalid_value');
-    const model = String(b.model ?? cur?.model ?? '').trim().slice(0, 80);
-    let keyEnc = cur?.api_key_enc ?? null;
-    if (b.apiKey !== undefined) {
-      const k = String(b.apiKey).trim();
-      if (k.length > 400) return bad(reply, 'invalid_value');
-      keyEnc = k ? app.secrets.encrypt(k) : null;
-    }
-    db.prepare(`INSERT INTO user_ocr(user_id, engine, provider, model, api_key_enc) VALUES (?,?,?,?,?)
-      ON CONFLICT(user_id) DO UPDATE SET engine = excluded.engine, provider = excluded.provider, model = excluded.model, api_key_enc = excluded.api_key_enc`)
-      .run(req.user.id, engine, provider, model || null, keyEnc);
-    return { user: userPayload(db, db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id)) };
   });
 }

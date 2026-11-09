@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { t, errText, timeAgo } from './i18n';
+import ModulesAdmin from './ModulesAdmin';
 import type { Me } from './types';
 
 type AdminUser = {
@@ -8,7 +9,7 @@ type AdminUser = {
   disabled: boolean; mustChangePassword: boolean; lastSeenAt: number | null; devices: number;
   itemsAdded: number; purchases: number; households: string;
 };
-type Tab = 'users' | 'settings' | 'audit';
+type Tab = 'users' | 'modules' | 'settings' | 'audit';
 
 export default function Admin({ me }: { me: Me }) {
   const [tab, setTab] = useState<Tab>('users');
@@ -16,13 +17,14 @@ export default function Admin({ me }: { me: Me }) {
     <div className="stack">
       <h1>{t('navAdmin')}</h1>
       <div className="tabs" role="group">
-        {(['users', 'settings', 'audit'] as Tab[]).map((k) => (
+        {(['users', 'modules', 'settings', 'audit'] as Tab[]).map((k) => (
           <button key={k} aria-pressed={tab === k} onClick={() => setTab(k)}>
-            {k === 'users' ? t('adminUsers') : k === 'settings' ? t('adminSettings') : t('adminAudit')}
+            {k === 'users' ? t('adminUsers') : k === 'modules' ? t('adminModules') : k === 'settings' ? t('adminSettings') : t('adminAudit')}
           </button>
         ))}
       </div>
       {tab === 'users' && <Users me={me} />}
+      {tab === 'modules' && <ModulesAdmin me={me} />}
       {tab === 'settings' && <ServerSettings />}
       {tab === 'audit' && <Audit />}
     </div>
@@ -155,7 +157,7 @@ function Users({ me }: { me: Me }) {
 
 type SettingsData = {
   registration_mode: 'open' | 'invite-only' | 'admin-only';
-  session_days: number; min_password_length: number; app_url: string; allow_user_households: boolean; ocr_enabled: boolean; compare_enabled: boolean; branch_cache_days: number;
+  session_days: number; min_password_length: number; app_url: string; allow_user_households: boolean;
   smtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string };
 };
 
@@ -198,10 +200,6 @@ function ServerSettings() {
           ))}
         </div>
         <label className="check"><input type="checkbox" checked={s.allow_user_households} onChange={(e) => setS({ ...s, allow_user_households: e.target.checked })} /><span>{t('allowUserHouseholds')}</span></label>
-        <label className="check"><input type="checkbox" checked={s.ocr_enabled} onChange={(e) => setS({ ...s, ocr_enabled: e.target.checked })} /><span>{t('allowOcr')}</span></label>
-        <label className="check"><input type="checkbox" checked={s.compare_enabled} onChange={(e) => setS({ ...s, compare_enabled: e.target.checked })} /><span>{t('allowCompare')}</span></label>
-        <label className="field"><span>{t('adminBranchCache')}</span>
-          <input type="number" min={1} max={90} value={s.branch_cache_days} onChange={(e) => setS({ ...s, branch_cache_days: Number(e.target.value) })} /></label>
         <label className="field"><span>{t('sessionDays')}</span>
           <input type="number" min={1} max={3650} value={s.session_days} onChange={(e) => setS({ ...s, session_days: Number(e.target.value) })} /></label>
         <label className="field"><span>{t('minPassword')}</span>

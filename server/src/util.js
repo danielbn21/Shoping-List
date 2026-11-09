@@ -54,9 +54,6 @@ export const SETTING_DEFAULTS = {
   app_url: '',
   match_strictness: 'normal', // used by duplicate detection (Stage 2)
   allow_user_households: true, // may ordinary users create their own households?
-  ocr_enabled: true, // receipt scanning (local Tesseract, or a user's own cloud key)
-  branch_cache_days: 7, // how long the branch directory (from the chains' Stores files) is reused
-  compare_enabled: true, // the "Compare prices" tab on lists (Israeli shekel users only)
   smtp: { host: '', port: 587, secure: false, user: '', pass: '', from: '' },
   default_categories: [
     { en: 'Produce', he: 'פירות וירקות' },
@@ -122,12 +119,6 @@ export function userPayload(db, u) {
     households,
     canCreateHousehold: u.role === 'admin' || !!getSetting(db, 'allow_user_households'),
     currency: u.currency ?? null,
-    ocrEnabled: !!getSetting(db, 'ocr_enabled'),
-    compareEnabled: !!getSetting(db, 'compare_enabled'),
-    ocr: (() => {
-      const o = db.prepare('SELECT engine, provider, model, api_key_enc FROM user_ocr WHERE user_id = ?').get(u.id);
-      return { engine: o?.engine ?? 'auto', provider: o?.provider ?? 'anthropic', model: o?.model ?? '', hasKey: !!o?.api_key_enc };
-    })(),
   };
 }
 

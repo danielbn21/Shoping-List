@@ -78,6 +78,7 @@ export default async function listRoutes(app) {
     if (acc.role !== 'owner') return bad(reply, 'forbidden', 403);
     db.prepare('UPDATE lists SET archived = 1 WHERE id = ?').run(acc.list.id);
     audit(db, req.user.id, 'list.deleted', String(acc.list.id));
+    app.modules.events.emit('list.deleted', { listId: acc.list.id, householdId: acc.list.household_id });
     return { ok: true };
   });
 
@@ -91,8 +92,8 @@ export default async function listRoutes(app) {
       LEFT JOIN users u ON u.id = e.added_by LEFT JOIN users cu ON cu.id = e.checked_by
       WHERE e.list_id = ? AND e.deleted = 0 ORDER BY e.position, e.id`).all(acc.list.id);
     const categories = db.prepare('SELECT id, name_en, name_he, sort FROM categories WHERE household_id = ? ORDER BY sort, id').all(hid);
-    const stores = db.prepare('SELECT id, name, chain FROM stores WHERE household_id = ? ORDER BY id').all(hid).map((s) => ({
-      id: s.id, name: s.name, chain: s.chain ?? null,
+    const stores = db.prepare('SELECT id, name FROM stores WHERE household_id = ? ORDER BY id').all(hid).map((s) => ({
+      id: s.id, name: s.name,
       categoryOrder: db.prepare('SELECT category_id FROM store_layouts WHERE store_id = ? ORDER BY position').all(s.id).map((r) => r.category_id),
     }));
     const shoppingNow = db.prepare(`SELECT t.shopper_id, t.started_at, u.name FROM trips t LEFT JOIN users u ON u.id = t.shopper_id
@@ -259,6 +260,7 @@ export default async function listRoutes(app) {
       db.prepare('UPDATE items SET archived = 1 WHERE id = ?').run(item.id);
       db.prepare('UPDATE list_entries SET deleted = 1, updated_at = ? WHERE item_id = ? AND deleted = 0').run(Date.now(), item.id);
     })();
+    app.modules.events.emit('item.deleted', { itemId: item.id, householdId: item.household_id });
     return { ok: true };
   });
 

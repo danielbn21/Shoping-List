@@ -6,6 +6,7 @@ import { AuthScreens, ChangePasswordScreen } from './Auth';
 import Home from './Home';
 import Settings from './Settings';
 import Admin from './Admin';
+import { syncModules } from './modules';
 
 type State = { kind: 'loading' } | { kind: 'offline' } | { kind: 'ready'; cfg: Cfg; me: Me | null };
 type View = 'home' | 'settings' | 'admin';
@@ -40,6 +41,8 @@ export default function App() {
   useEffect(() => { localStorage.setItem('sl_lang', lang); }, [lang]);
   useEffect(() => { document.documentElement.dataset.theme = me?.theme ?? 'system'; }, [me?.theme]);
   useEffect(() => { document.title = t('appName'); }, [lang]);
+  // Modules the user may use and has switched on add their screens here; one that is switched off is taken away again.
+  useEffect(() => { syncModules(me?.modules ?? []); }, [me?.modules]);
 
   const logout = async () => {
     try { await api('/auth/logout', { method: 'POST' }); } catch { /* ignore */ }

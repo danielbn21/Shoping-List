@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { parseReceiptText, hebrewLooksReversed, reverseHebrewRuns, cloudOcr, normalizeCloud } from '../src/ocr.js';
-import { findReceiptMatch, normalize } from '../src/match.js';
+import { parseReceiptText, hebrewLooksReversed, reverseHebrewRuns, cloudOcr, normalizeCloud } from '../server/ocr.js';
+import { findReceiptMatch, normalize } from '../../../server/src/match.js';
 
 const fixture = (n) => fs.readFileSync(new URL(`./fixtures/${n}`, import.meta.url), 'utf8'); // real Tesseract 5 output
 

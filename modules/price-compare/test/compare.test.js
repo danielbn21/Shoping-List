@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { buildApp } from '../src/app.js';
+import { buildApp } from '../../../server/src/app.js';
 
 const H = { 'x-sl-client': 'web', 'content-type': 'application/json' };
 
@@ -27,7 +27,7 @@ async function boot() {
   };
   const addStore = async (name, chain) => {
     const id = (await call('POST', `/api/households/${hid}/stores`, { name }, admin.cookie)).body.id;
-    if (chain) await call('PATCH', `/api/stores/${id}`, { chain }, admin.cookie);
+    if (chain) await call('PUT', `/api/m/price-compare/stores/${id}/chain`, { chain }, admin.cookie);
     return id;
   };
   // buy items at a store, with unit prices, and finish the trip
@@ -53,16 +53,16 @@ test('chain selection: editors choose, everyone can look, unknown chains and bra
   const shopper = await mkUser('dana');
   await call('PUT', `/api/lists/${lid}/members/${shopper.id}`, { role: 'viewer' }, admin.cookie);
 
-  const put = await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'shufersal' }, { chain: 'rami_levy' }, { chain: 'shufersal' }] }, admin.cookie);
+  const put = await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'shufersal' }, { chain: 'rami_levy' }, { chain: 'shufersal' }] }, admin.cookie);
   assert.equal(put.status, 200);
   assert.deepEqual(put.body.selection.map((s) => s.chain), ['shufersal', 'rami_levy']); // duplicates collapse
 
-  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'nope' }] }, admin.cookie)).status, 400);
-  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'shufersal', branchId: '12' }] }, admin.cookie)).body.error, 'unknown_branch'); // the branch directory is empty here
-  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'victory' }] }, admin.cookie)).status, 400); // not supported yet
-  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [] }, shopper.cookie)).status, 403); // a Shopper cannot change it
+  assert.equal((await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'nope' }] }, admin.cookie)).status, 400);
+  assert.equal((await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'shufersal', branchId: '12' }] }, admin.cookie)).body.error, 'unknown_branch'); // the branch directory is empty here
+  assert.equal((await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'victory' }] }, admin.cookie)).status, 400); // not supported yet
+  assert.equal((await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [] }, shopper.cookie)).status, 403); // a Shopper cannot change it
 
-  const seen = (await call('GET', `/api/lists/${lid}/compare`, undefined, shopper.cookie)).body; // but can see it
+  const seen = (await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, shopper.cookie)).body; // but can see it
   assert.equal(seen.canEdit, false);
   assert.deepEqual(seen.selection.map((s) => s.chain), ['shufersal', 'rami_levy']);
   assert.ok(seen.chains.length >= 2);
@@ -76,9 +76,9 @@ test('comparison prices the open items from your own receipts, with coverage and
   await buy(sh, [['Milk', 1, 6], ['Eggs', 1, 12]]);
   await buy(rl, [['Milk', 1, 5], ['Eggs', 1, 13], ['Bread', 1, 9]]);
   await want([['Milk', 2], ['Eggs', 1], ['Bread', 1], ['Tahini', 1]]);
-  await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'shufersal' }, { chain: 'rami_levy' }, { chain: 'carrefour' }] }, admin.cookie);
+  await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'shufersal' }, { chain: 'rami_levy' }, { chain: 'carrefour' }] }, admin.cookie);
 
-  const r = (await call('GET', `/api/lists/${lid}/compare`, undefined, admin.cookie)).body;
+  const r = (await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie)).body;
   assert.equal(r.openCount, 4);
   assert.deepEqual(r.results.map((x) => x.chain), ['rami_levy', 'shufersal', 'carrefour']); // most items priced first, no data last
   const [ramiLevy, shufersal, carrefour] = r.results;
@@ -100,9 +100,9 @@ test('only open items count, the newest price wins, other currencies and unlinke
   await want([['Milk', 1], ['Eggs', 1]]);
   const e = await call('POST', `/api/lists/${lid}/entries`, { name: 'Bread', quantity: 1 }, admin.cookie);
   await call('POST', `/api/entries/${e.body.entryId}/check`, { checked: true }, admin.cookie); // in the cart: not part of the comparison
-  await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'shufersal' }] }, admin.cookie);
+  await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'shufersal' }] }, admin.cookie);
 
-  const r = (await call('GET', `/api/lists/${lid}/compare`, undefined, admin.cookie)).body;
+  const r = (await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie)).body;
   assert.equal(r.openCount, 2);
   assert.deepEqual([r.results[0].priced, r.results[0].total], [1, 7]);
   assert.deepEqual(r.results[0].missing.map((m) => m.name), ['Eggs']);
@@ -115,61 +115,36 @@ test('only open items count, the newest price wins, other currencies and unlinke
   const d = (await call('GET', `/api/trips/${f.tripId}`, undefined, admin.cookie)).body;
   await call('PATCH', `/api/purchases/${d.lines[0].id}`, { unitPrice: 2 }, admin.cookie);
   await want([['Soda', 1]]);
-  await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'carrefour' }] }, admin.cookie);
-  const r2 = (await call('GET', `/api/lists/${lid}/compare`, undefined, admin.cookie)).body;
+  await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'carrefour' }] }, admin.cookie);
+  const r2 = (await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie)).body;
   assert.equal(r2.results[0].priced, 0);
   await app.close();
 });
 
-test('the admin can switch comparison off', async () => {
-  const { app, call, admin, lid } = await boot();
-  assert.equal(admin.body.user.compareEnabled, true);
-  await call('PUT', '/api/admin/settings', { compare_enabled: false }, admin.cookie);
-  const r = (await call('GET', `/api/lists/${lid}/compare`, undefined, admin.cookie)).body;
-  assert.deepEqual([r.enabled, r.results.length], [false, 0]);
-  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'shufersal' }] }, admin.cookie)).status, 403);
-  assert.equal((await call('GET', '/api/me', undefined, admin.cookie)).body.user.compareEnabled, false);
+test('disabling the module switches comparison off for everyone; the user\'s own switch hides it for them', async () => {
+  const { app, call, admin, lid, mkUser } = await boot();
+  const dana = await mkUser('dana');
+  assert.ok(admin.body.user.modules.some((m) => m.id === 'price-compare' && m.on));
+  assert.ok((await call('GET', '/api/me', undefined, dana.cookie)).body.user.capabilities.includes('price-source'));
+  assert.equal((await call('PUT', '/api/modules/price-compare/me', { on: false }, dana.cookie)).body.user.modules[0].on, false);
+  assert.equal((await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, dana.cookie)).status, 404); // off for her
+  assert.equal((await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie)).status, 200); // still on for the admin
+  await call('POST', '/api/admin/modules/price-compare/disable', {}, admin.cookie);
+  assert.equal((await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie)).status, 404);
+  assert.ok(!(await call('GET', '/api/me', undefined, admin.cookie)).body.user.modules.some((m) => m.id === 'price-compare'));
   await app.close();
 });
 
 test('stores can be linked to a chain and unlinked again', async () => {
   const { app, call, admin, lid, addStore } = await boot();
   const id = await addStore('Local', 'politzer');
-  const stores = () => call('GET', `/api/lists/${lid}`, undefined, admin.cookie).then((r) => r.body.stores);
+  const stores = () => call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie).then((r) => r.body.stores);
   assert.equal((await stores())[0].chain, 'politzer');
-  assert.equal((await call('PATCH', `/api/stores/${id}`, { chain: 'bogus' }, admin.cookie)).status, 400);
-  assert.equal((await call('PATCH', `/api/stores/${id}`, { chain: 'victory' }, admin.cookie)).status, 400); // listed, but not supported yet
-  await call('PATCH', `/api/stores/${id}`, { chain: null }, admin.cookie);
+  assert.equal((await call('PUT', `/api/m/price-compare/stores/${id}/chain`, { chain: 'bogus' }, admin.cookie)).status, 400);
+  assert.equal((await call('PUT', `/api/m/price-compare/stores/${id}/chain`, { chain: 'victory' }, admin.cookie)).status, 400); // listed, but not supported yet
+  await call('PUT', `/api/m/price-compare/stores/${id}/chain`, { chain: null }, admin.cookie);
   assert.equal((await stores())[0].chain, null);
   await call('PATCH', `/api/stores/${id}`, { name: 'Renamed' }, admin.cookie); // renaming still works on its own
   assert.deepEqual([(await stores())[0].name, (await stores())[0].chain], ['Renamed', null]);
-  await app.close();
-});
-
-test('a purchased line can be deleted, and restore keeps the purchased quantities', async () => {
-  const { app, call, admin, lid, buy } = await boot();
-  const tripId = await buy(null, [['Milk', 3, 6], ['Eggs', 2, 12], ['Rice', 1, 15]]);
-  const d = (await call('GET', `/api/trips/${tripId}`, undefined, admin.cookie)).body;
-  const rice = d.lines.find((l) => l.name === 'Rice');
-  assert.equal((await call('DELETE', `/api/purchases/${rice.id}`, undefined, admin.cookie)).status, 200);
-  assert.equal((await call('DELETE', `/api/purchases/${rice.id}`, undefined, admin.cookie)).status, 404); // already gone
-  const after = (await call('GET', `/api/trips/${tripId}`, undefined, admin.cookie)).body;
-  assert.deepEqual(after.lines.map((l) => l.name).sort(), ['Eggs', 'Milk']);
-  const r = await call('POST', `/api/trips/${tripId}/restore`, { purchaseIds: after.lines.map((l) => l.id) }, admin.cookie);
-  assert.deepEqual([r.body.added, r.body.merged], [2, 0]);
-  const list = (await call('GET', `/api/lists/${lid}`, undefined, admin.cookie)).body;
-  assert.deepEqual(list.entries.filter((e) => e.state === 'open').map((e) => [e.name, e.quantity]).sort(), [['Eggs', 2], ['Milk', 3]]);
-  await app.close();
-});
-
-test('a user outside the household cannot delete someone else\'s purchased line', async () => {
-  const { app, call, admin, buy } = await boot();
-  const tripId = await buy(null, [['Milk', 1, 6]]);
-  const line = (await call('GET', `/api/trips/${tripId}`, undefined, admin.cookie)).body.lines[0];
-  const stranger = await call('POST', '/api/admin/users', { name: 'eve', username: 'eve' }, admin.cookie); // no household membership
-  const login = await call('POST', '/api/auth/login', { login: 'eve', password: stranger.body.oneTimePassword });
-  await call('POST', '/api/auth/change-password', { currentPassword: stranger.body.oneTimePassword, newPassword: 'new-password-1' }, login.cookie);
-  assert.equal((await call('DELETE', `/api/purchases/${line.id}`, undefined, login.cookie)).status, 404);
-  assert.equal((await call('GET', `/api/trips/${tripId}`, undefined, admin.cookie)).body.lines.length, 1);
   await app.close();
 });

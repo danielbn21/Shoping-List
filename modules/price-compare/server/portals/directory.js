@@ -1,4 +1,3 @@
-import { getSetting } from '../util.js';
 import { makeChains } from '../chains.js';
 import { decodeXmlBytes } from './decode.js';
 import { parseStoresXml } from './xml.js';
@@ -14,14 +13,15 @@ export function bannerOf(chain, name) {
   return name.replace('שופרסל', '').replace('קרפור', '').trim().split(/\s+/)[0] || '';
 }
 
-export function createDirectory({ db, portals, http, citiesUrl, delayMs = 400, now = Date.now }) {
+export function createDirectory({ db, portals, http, citiesUrl, delayMs = 400, now = Date.now, cacheDays = () => 7 }) {
   const chains = makeChains(db);
   let job = null;
   seedCities(db);
 
   const state = db.prepare('SELECT * FROM portal_chain_state WHERE chain = ?');
   const touch = db.prepare('INSERT INTO portal_chain_state(chain) VALUES (?) ON CONFLICT(chain) DO NOTHING');
-  const markError = (chain, e) => { touch.run(chain); db.prepare('UPDATE portal_chain_state SET last_error = ?, last_error_at = ? WHERE chain = ?').run(String(e?.message || e).slice(0, 300), now(), chain); };
+  // A refresh can still be running when the server shuts down (a restart); a closed database then is not an error worth crashing for.
+  const markError = (chain, e) => { try { touch.run(chain); db.prepare('UPDATE portal_chain_state SET last_error = ?, last_error_at = ? WHERE chain = ?').run(String(e?.message || e).slice(0, 300), now(), chain); } catch { /* database closed */ } };
 
   // Chains disagree on how they write the city (numeric locality code vs a name), so a name that matches a known city is mapped to its code.
   const cityResolver = () => {
@@ -82,7 +82,7 @@ export function createDirectory({ db, portals, http, citiesUrl, delayMs = 400, n
   function ensureFresh() {
     if (job?.running) return;
     const usable = chains.all().filter((c) => c.supported && c.enabled);
-    const maxAge = Number(getSetting(db, 'branch_cache_days')) * DAY;
+    const maxAge = Number(cacheDays()) * DAY;
     const stale = usable.filter((c) => { const s = state.get(c.id); return !s?.branches_fetched_at || now() - s.branches_fetched_at > maxAge; });
     // A chain whose last attempt failed is retried at most once an hour.
     const due = stale.filter((c) => { const s = state.get(c.id); return !s?.last_error_at || now() - s.last_error_at > 3_600_000; });

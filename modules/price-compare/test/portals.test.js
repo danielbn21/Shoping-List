@@ -5,22 +5,23 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { buildApp } from '../src/app.js';
+import { buildApp } from '../../../server/src/app.js';
 import { startFakePortals } from './fakePortals.js';
-import { decodeXmlBytes, describeBytes } from '../src/portals/decode.js';
-import { parseStoresXml, iterItems, headerOf } from '../src/portals/xml.js';
-import { normalizeUnit } from '../src/portals/units.js';
-import { createHttp } from '../src/portals/http.js';
-import { createPortals, newestFirst, storeOfName } from '../src/portals/clients.js';
-import { summarizePriceFile } from '../src/portals/diagnostics.js';
+import { decodeXmlBytes, describeBytes } from '../server/portals/decode.js';
+import { parseStoresXml, iterItems, headerOf } from '../server/portals/xml.js';
+import { normalizeUnit } from '../server/portals/units.js';
+import { createHttp } from '../server/portals/http.js';
+import { createPortals, newestFirst, storeOfName } from '../server/portals/clients.js';
+import { summarizePriceFile } from '../server/portals/diagnostics.js';
 
 const FIX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'portal');
 const H = { 'x-sl-client': 'web', 'content-type': 'application/json' };
 
+let svc; // the module's directory, chains and portal clients, handed out through its test option (set by boot)
 async function boot({ delayMs = 0 } = {}) {
   const fake = await startFakePortals();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-'));
-  const app = await buildApp({ dataDir, logger: false, portalOptions: { baseUrls: { shufersal: fake.urls.shufersal, shared: fake.urls.shared, carrefour: fake.urls.carrefour }, citiesUrl: fake.urls.cities, delayMs } });
+  const app = await buildApp({ dataDir, logger: false, moduleOptions: { 'price-compare': { baseUrls: { shufersal: fake.urls.shufersal, shared: fake.urls.shared, carrefour: fake.urls.carrefour }, citiesUrl: fake.urls.cities, delayMs, expose: (x) => { svc = x; } } } });
   const call = async (method, url, body, cookie) => {
     const res = await app.inject({ method, url, headers: { ...H, ...(cookie ? { cookie } : {}) }, payload: body === undefined ? undefined : JSON.stringify(body) });
     const c = res.cookies.find((x) => x.name === 'sl_session');
@@ -36,7 +37,7 @@ async function boot({ delayMs = 0 } = {}) {
     await call('POST', '/api/auth/change-password', { currentPassword: r.body.oneTimePassword, newPassword: 'new-password-1' }, login.cookie);
     return { id: r.body.id, cookie: login.cookie };
   };
-  const idle = async () => { for (let i = 0; i < 200 && app.directory.status()?.running; i++) await new Promise((r) => setTimeout(r, 25)); };
+  const idle = async () => { for (let i = 0; i < 200 && svc.dir.status()?.running; i++) await new Promise((r) => setTimeout(r, 25)); };
   const close = async () => { await idle(); await app.close(); await fake.close(); };
   return { app, fake, call, admin, hid, lid, mkUser, idle, close };
 }
@@ -156,7 +157,7 @@ test('a portal that is down gives a clear error, not a hang', async () => {
 // ---------- branch directory ----------
 test('directory refresh: all chains, filters, banners, city codes and names resolved', async () => {
   const { app, fake, close, idle } = await boot();
-  const d = app.directory;
+  const d = svc.dir;
   assert.equal(d.startRefresh().started, true);
   assert.equal(d.startRefresh().started, false); // one job at a time
   await idle();
@@ -167,16 +168,16 @@ test('directory refresh: all chains, filters, banners, city codes and names reso
   assert.equal(res.carrefour.branches, 2);
   assert.equal(res.yochananof.ok, false); // the fake knows no such user: one failing chain does not stop the rest
   assert.match(res.yochananof.error, /login failed/);
-  const rows = app.db.prepare("SELECT * FROM portal_branches WHERE chain = 'shufersal' ORDER BY store_id").all();
+  const rows = app.modules.loaded.get('price-compare').db.prepare("SELECT * FROM portal_branches WHERE chain = 'shufersal' ORDER BY store_id").all();
   assert.deepEqual(rows.map((r) => [r.store_id, r.banner, r.city_key]), [['17', 'שלי', '8600'], ['18', 'דיל', '6100'], ['19', 'יש', '4000']]); // names mapped to the government codes
-  const car = app.db.prepare("SELECT banner, city_key FROM portal_branches WHERE chain = 'carrefour' ORDER BY store_id").all();
+  const car = app.modules.loaded.get('price-compare').db.prepare("SELECT banner, city_key FROM portal_branches WHERE chain = 'carrefour' ORDER BY store_id").all();
   assert.deepEqual(car.map((r) => [r.banner, r.city_key]), [['סיטי', '6600'], ['מרקט', '6400']].reverse());
   const cities = d.listCities();
   const rg = cities.find((c) => c.key === '8600');
   assert.deepEqual([rg.name, rg.branches, rg.chains], ['רמת גן', 2, 2]); // Shufersal (written as a name) and Rami Levy (a code) land on one city; the BE pharmacy is dropped
-  assert.equal(app.db.prepare("SELECT source FROM city_names WHERE code = '8600'").get().source, 'gov');
+  assert.equal(app.modules.loaded.get('price-compare').db.prepare("SELECT source FROM city_names WHERE code = '8600'").get().source, 'gov');
   assert.ok(fake.state.hits.gov >= 1);
-  const err = app.db.prepare("SELECT last_error FROM portal_chain_state WHERE chain = 'yochananof'").get();
+  const err = app.modules.loaded.get('price-compare').db.prepare("SELECT last_error FROM portal_chain_state WHERE chain = 'yochananof'").get();
   assert.match(err.last_error, /login failed/);
   const stop = d.listBranches({ cities: ['4000'], chainIds: ['stop_market'] });
   assert.equal(stop.length, 3);
@@ -187,13 +188,13 @@ test('directory refresh: all chains, filters, banners, city codes and names reso
 test('directory loads lazily and a down portal is recorded without losing the others', async () => {
   const { app, fake, close, idle } = await boot();
   fake.state.down.add('shufersal');
-  app.directory.ensureFresh();
+  svc.dir.ensureFresh();
   await idle();
-  const s = app.directory.chainStats().find((x) => x.chain === 'shufersal');
+  const s = svc.dir.chainStats().find((x) => x.chain === 'shufersal');
   assert.match(s.lastError, /503/);
-  assert.equal(app.directory.chainStats().find((x) => x.chain === 'carrefour').branches, 2);
+  assert.equal(svc.dir.chainStats().find((x) => x.chain === 'carrefour').branches, 2);
   const before = fake.state.hits.carrefour;
-  app.directory.ensureFresh(); // everything fresh, and the failed chain is not retried within the hour
+  svc.dir.ensureFresh(); // everything fresh, and the failed chain is not retried within the hour
   await idle();
   assert.equal(fake.state.hits.carrefour, before);
   await close();
@@ -202,61 +203,61 @@ test('directory loads lazily and a down portal is recorded without losing the ot
 // ---------- API ----------
 test('pickers: the first visit loads the directory in the background; cities and branches come from it', async () => {
   const { call, admin, close, idle } = await boot();
-  const first = (await call('GET', '/api/portals/cities', undefined, admin.cookie)).body;
+  const first = (await call('GET', '/api/m/price-compare/portals/cities', undefined, admin.cookie)).body;
   assert.equal(first.loading, true);
   assert.ok(first.chains.some((c) => c.id === 'stop_market' && c.enabled));
   await idle();
-  const r = (await call('GET', '/api/portals/cities', undefined, admin.cookie)).body;
+  const r = (await call('GET', '/api/m/price-compare/portals/cities', undefined, admin.cookie)).body;
   assert.equal(r.loading, false);
   assert.ok(r.cities.some((c) => c.key === '8600' && c.name === 'רמת גן'));
-  const b = (await call('GET', '/api/portals/branches?cities=8600,6100', undefined, admin.cookie)).body.branches;
+  const b = (await call('GET', '/api/m/price-compare/portals/branches?cities=8600,6100', undefined, admin.cookie)).body.branches;
   assert.ok(b.length >= 4 && b.every((x) => ['8600', '6100'].includes(x.cityKey)));
   assert.ok(b.find((x) => x.chain === 'shufersal' && x.banner === 'שלי'));
-  assert.equal((await call('GET', '/api/portals/cities')).status, 401);
+  assert.equal((await call('GET', '/api/m/price-compare/portals/cities')).status, 401);
   await close();
 });
 
 test('list selection with cities and branches: validated, a branch keeps its chain, Shoppers cannot change it', async () => {
   const { call, admin, lid, mkUser, idle, close } = await boot();
-  await call('GET', '/api/portals/cities', undefined, admin.cookie); await idle();
+  await call('GET', '/api/m/price-compare/portals/cities', undefined, admin.cookie); await idle();
   const shopper = await mkUser('dana');
   await call('PUT', `/api/lists/${lid}/members/${shopper.id}`, { role: 'viewer' }, admin.cookie);
 
   const sel = [{ chain: 'stop_market', branchId: '2' }, { chain: 'stop_market', branchId: 3 }, { chain: 'shufersal', branchId: '17' }, { chain: 'rami_levy' }, { chain: 'stop_market', branchId: '2' }];
-  const put = await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: sel, cities: ['8600', '6400'] }, admin.cookie);
+  const put = await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: sel, cities: ['8600', '6400'] }, admin.cookie);
   assert.equal(put.status, 200);
   assert.deepEqual(put.body.selection.map((s) => `${s.chain}:${s.branchId}`), ['stop_market:', 'stop_market:2', 'stop_market:3', 'shufersal:', 'shufersal:17', 'rami_levy:']);
   assert.deepEqual(put.body.cities.map((c) => c.key), ['8600', '6400']);
   assert.equal(put.body.selection.find((s) => s.branchId === '2').cityName, 'הרצליה');
 
-  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'shufersal', branchId: '999' }] }, admin.cookie)).body.error, 'unknown_branch');
-  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'victory' }] }, admin.cookie)).status, 400); // not supported yet
-  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [], cities: ['<script>'] }, admin.cookie)).status, 400);
-  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [] }, shopper.cookie)).status, 403);
+  assert.equal((await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'shufersal', branchId: '999' }] }, admin.cookie)).body.error, 'unknown_branch');
+  assert.equal((await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'victory' }] }, admin.cookie)).status, 400); // not supported yet
+  assert.equal((await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [], cities: ['<script>'] }, admin.cookie)).status, 400);
+  assert.equal((await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [] }, shopper.cookie)).status, 403);
 
-  const seen = (await call('GET', `/api/lists/${lid}/compare`, undefined, shopper.cookie)).body;
+  const seen = (await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, shopper.cookie)).body;
   assert.equal(seen.canEdit, false);
   assert.equal(seen.selection.length, 6);
   assert.deepEqual(seen.results.map((r) => r.chain).sort(), ['rami_levy', 'shufersal', 'stop_market']); // one row per chain...
   const stop = seen.results.find((r) => r.chain === 'stop_market');
   assert.deepEqual(stop.branches.map((b) => b.storeId), ['2', '3']); // ...with its chosen branches listed
   // omitting `cities` keeps the saved cities
-  await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'rami_levy' }] }, admin.cookie);
-  assert.deepEqual((await call('GET', `/api/lists/${lid}/compare`, undefined, admin.cookie)).body.cities.map((c) => c.key), ['8600', '6400']);
+  await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'rami_levy' }] }, admin.cookie);
+  assert.deepEqual((await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie)).body.cities.map((c) => c.key), ['8600', '6400']);
   await close();
 });
 
 test('a chain the admin switches off disappears from pickers and selections', async () => {
   const { call, admin, lid, idle, close } = await boot();
-  await call('GET', '/api/portals/cities', undefined, admin.cookie); await idle();
-  await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'carrefour' }, { chain: 'rami_levy' }] }, admin.cookie);
-  assert.equal((await call('PUT', '/api/admin/portals/carrefour', { enabled: false }, admin.cookie)).status, 200);
-  const r = (await call('GET', `/api/lists/${lid}/compare`, undefined, admin.cookie)).body;
+  await call('GET', '/api/m/price-compare/portals/cities', undefined, admin.cookie); await idle();
+  await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'carrefour' }, { chain: 'rami_levy' }] }, admin.cookie);
+  assert.equal((await call('PUT', '/api/m/price-compare/admin/portals/carrefour', { enabled: false }, admin.cookie)).status, 200);
+  const r = (await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie)).body;
   assert.deepEqual(r.selection.map((s) => s.chain), ['rami_levy']);
   assert.equal(r.chains.find((c) => c.id === 'carrefour').enabled, false);
-  assert.equal((await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'carrefour' }] }, admin.cookie)).status, 400);
-  assert.equal((await call('PUT', '/api/admin/portals/victory', { enabled: true }, admin.cookie)).status, 404);
-  const cities = (await call('GET', '/api/portals/cities', undefined, admin.cookie)).body.cities;
+  assert.equal((await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'carrefour' }] }, admin.cookie)).status, 400);
+  assert.equal((await call('PUT', '/api/m/price-compare/admin/portals/victory', { enabled: true }, admin.cookie)).status, 404);
+  const cities = (await call('GET', '/api/m/price-compare/portals/cities', undefined, admin.cookie)).body.cities;
   assert.ok(!cities.some((c) => c.key === '6600')); // Holon only had Carrefour
   await close();
 });
@@ -264,54 +265,54 @@ test('a chain the admin switches off disappears from pickers and selections', as
 test('Portals screen: status, per-chain test report, raw samples (admin only)', async () => {
   const { call, admin, mkUser, idle, close, app } = await boot();
   const user = await mkUser('eve');
-  assert.equal((await call('GET', '/api/admin/portals', undefined, user.cookie)).status, 403);
+  assert.equal((await call('GET', '/api/m/price-compare/admin/portals', undefined, user.cookie)).status, 403);
 
-  assert.equal((await call('POST', '/api/portals/refresh', { chain: 'stop_market' }, admin.cookie)).body.started, true);
+  assert.equal((await call('POST', '/api/m/price-compare/portals/refresh', { chain: 'stop_market' }, admin.cookie)).body.started, true);
   await idle();
-  const ov = (await call('GET', '/api/admin/portals', undefined, admin.cookie)).body;
+  const ov = (await call('GET', '/api/m/price-compare/admin/portals', undefined, admin.cookie)).body;
   const sm = ov.chains.find((c) => c.id === 'stop_market');
   assert.deepEqual([sm.platform, sm.user, sm.branches, sm.cities, sm.zipFilled, sm.storesFile], ['shared', 'Stop_Market', 11, 8, 10, 'Stores7290639000004-000-20261105-055500.xml']);
   assert.equal(ov.chains.findIndex((c) => c.id === 'stop_market'), 0); // listed first
   assert.ok(ov.chains.some((c) => c.id === 'victory' && !c.supported));
 
-  const t = (await call('POST', '/api/portals/stop_market/test', { save: true }, admin.cookie)).body;
+  const t = (await call('POST', '/api/m/price-compare/portals/stop_market/test', { save: true }, admin.cookie)).body;
   assert.deepEqual(t.report.steps.map((s) => [s.name, s.ok]), [['open', true], ['stores', true], ['pricefull_list', true], ['pricefull_parse', true]]);
   const stores = t.report.steps[1].detail, parse = t.report.steps[3].detail;
   assert.deepEqual([stores.branches, stores.cities, stores.cityCodes, stores.zipFilled, stores.format], [11, 8, 'numeric codes', 10, 'plain + UTF-16 LE (BOM)']);
   assert.deepEqual([parse.chainId, parse.storeId, parse.format], ['7290639000004', '002', 'gzip + UTF-8 (BOM)']);
   assert.ok(parse.items >= 90 && parse.units.length > 0);
   assert.deepEqual(t.report.saved.sort(), ['PriceFull7290639000004-001-002-20261107-010011.gz', 'Stores7290639000004-000-20261105-055500.xml']);
-  const dl = await call('GET', `/api/admin/portals/samples/stop_market/${t.report.saved[0]}`, undefined, admin.cookie);
+  const dl = await call('GET', `/api/m/price-compare/admin/portals/samples/stop_market/${t.report.saved[0]}`, undefined, admin.cookie);
   assert.equal(dl.status, 200); assert.ok(dl.raw.length > 100);
-  assert.equal((await call('GET', `/api/admin/portals/samples/stop_market/${t.report.saved[0]}`, undefined, user.cookie)).status, 403);
-  assert.equal((await call('GET', '/api/admin/portals/samples/stop_market/..%2F..%2Fx', undefined, admin.cookie)).status, 404);
+  assert.equal((await call('GET', `/api/m/price-compare/admin/portals/samples/stop_market/${t.report.saved[0]}`, undefined, user.cookie)).status, 403);
+  assert.equal((await call('GET', '/api/m/price-compare/admin/portals/samples/stop_market/..%2F..%2Fx', undefined, admin.cookie)).status, 404);
 
   // a chain with no PriceFull today is reported, not crashed
-  const o = (await call('POST', '/api/portals/osher_ad/test', {}, admin.cookie)).body.report;
+  const o = (await call('POST', '/api/m/price-compare/portals/osher_ad/test', {}, admin.cookie)).body.report;
   assert.deepEqual(o.steps.map((s) => [s.name, s.ok]), [['open', true], ['stores', true], ['pricefull_list', false]]);
   assert.equal(o.steps[2].code, 'no_pricefull');
   // a chain whose login fails stops after the first step with the reason
-  const y = (await call('POST', '/api/portals/yochananof/test', {}, admin.cookie)).body.report;
+  const y = (await call('POST', '/api/m/price-compare/portals/yochananof/test', {}, admin.cookie)).body.report;
   assert.deepEqual(y.steps.map((s) => [s.name, s.ok]), [['open', false]]);
   assert.match(y.steps[0].error, /login failed/);
-  assert.equal((await call('POST', '/api/portals/victory/test', {}, admin.cookie)).status, 404);
-  assert.ok(app.db.prepare("SELECT 1 FROM audit_log WHERE action = 'portals.test'").get());
+  assert.equal((await call('POST', '/api/m/price-compare/portals/victory/test', {}, admin.cookie)).status, 404);
+  assert.ok(app.db.prepare("SELECT 1 FROM audit_log WHERE action = 'module.price-compare.portals.test'").get());
   await close();
 });
 
 test('experimental: an admin can add a chain by its portal username, test it, and remove it', async () => {
   const { call, admin, lid, idle, close } = await boot();
-  assert.equal((await call('POST', '/api/admin/portals/custom', { name: 'Victory', user: 'RamiLevi' }, admin.cookie)).status, 409); // already a built-in username
-  assert.equal((await call('POST', '/api/admin/portals/custom', { name: 'Victory', user: 'bad name!' }, admin.cookie)).status, 400);
-  const add = await call('POST', '/api/admin/portals/custom', { name: 'Victory', user: 'victoryfake' }, admin.cookie);
+  assert.equal((await call('POST', '/api/m/price-compare/admin/portals/custom', { name: 'Victory', user: 'RamiLevi' }, admin.cookie)).status, 409); // already a built-in username
+  assert.equal((await call('POST', '/api/m/price-compare/admin/portals/custom', { name: 'Victory', user: 'bad name!' }, admin.cookie)).status, 400);
+  const add = await call('POST', '/api/m/price-compare/admin/portals/custom', { name: 'Victory', user: 'victoryfake' }, admin.cookie);
   assert.equal(add.body.id, 'custom_victoryfake');
-  await call('POST', '/api/portals/refresh', { chain: 'custom_victoryfake' }, admin.cookie); await idle();
-  assert.equal(app_branches(await call('GET', '/api/admin/portals', undefined, admin.cookie), 'custom_victoryfake'), 1);
-  await call('PUT', `/api/lists/${lid}/compare/stores`, { selection: [{ chain: 'custom_victoryfake', branchId: '5' }] }, admin.cookie);
-  assert.equal((await call('GET', `/api/lists/${lid}/compare`, undefined, admin.cookie)).body.selection.length, 2);
-  assert.equal((await call('DELETE', '/api/admin/portals/custom/custom_victoryfake', undefined, admin.cookie)).status, 200);
-  assert.equal((await call('GET', `/api/lists/${lid}/compare`, undefined, admin.cookie)).body.selection.length, 0);
-  assert.equal((await call('DELETE', '/api/admin/portals/custom/custom_victoryfake', undefined, admin.cookie)).status, 404);
+  await call('POST', '/api/m/price-compare/portals/refresh', { chain: 'custom_victoryfake' }, admin.cookie); await idle();
+  assert.equal(app_branches(await call('GET', '/api/m/price-compare/admin/portals', undefined, admin.cookie), 'custom_victoryfake'), 1);
+  await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'custom_victoryfake', branchId: '5' }] }, admin.cookie);
+  assert.equal((await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie)).body.selection.length, 2);
+  assert.equal((await call('DELETE', '/api/m/price-compare/admin/portals/custom/custom_victoryfake', undefined, admin.cookie)).status, 200);
+  assert.equal((await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie)).body.selection.length, 0);
+  assert.equal((await call('DELETE', '/api/m/price-compare/admin/portals/custom/custom_victoryfake', undefined, admin.cookie)).status, 404);
   await close();
 });
 const app_branches = (r, id) => r.body.chains.find((c) => c.id === id).branches;
@@ -319,38 +320,38 @@ const app_branches = (r, id) => r.body.chains.find((c) => c.id === id).branches;
 test('any signed-in user can look, reload and test, but is rate limited and cannot keep raw files or change anything', async () => {
   const { call, admin, mkUser, idle, close, fake } = await boot();
   const user = await mkUser('eve');
-  assert.equal((await call('GET', '/api/portals/status')).status, 401);
-  const st = (await call('GET', '/api/portals/status', undefined, user.cookie)).body;
+  assert.equal((await call('GET', '/api/m/price-compare/portals/status')).status, 401);
+  const st = (await call('GET', '/api/m/price-compare/portals/status', undefined, user.cookie)).body;
   assert.equal(st.isAdmin, false);
   assert.equal(st.baseUrls, undefined); // internal addresses stay admin-only
   assert.ok(st.chains.find((c) => c.id === 'stop_market'));
 
-  const r1 = await call('POST', '/api/portals/refresh', { chain: 'stop_market' }, user.cookie);
+  const r1 = await call('POST', '/api/m/price-compare/portals/refresh', { chain: 'stop_market' }, user.cookie);
   assert.equal(r1.body.started, true);
   await idle();
-  const r2 = await call('POST', '/api/portals/refresh', { chain: 'stop_market' }, user.cookie); // again straight away
+  const r2 = await call('POST', '/api/m/price-compare/portals/refresh', { chain: 'stop_market' }, user.cookie); // again straight away
   assert.equal(r2.status, 429); assert.equal(r2.body.error, 'try_later'); assert.ok(r2.body.retryAfter > 0);
-  assert.equal((await call('POST', '/api/portals/refresh', { chain: 'rami_levy' }, user.cookie)).body.started, true); // another scope is fine
+  assert.equal((await call('POST', '/api/m/price-compare/portals/refresh', { chain: 'rami_levy' }, user.cookie)).body.started, true); // another scope is fine
   await idle();
 
-  const t1 = await call('POST', '/api/portals/stop_market/test', { save: true }, user.cookie);
+  const t1 = await call('POST', '/api/m/price-compare/portals/stop_market/test', { save: true }, user.cookie);
   assert.equal(t1.status, 200);
   assert.deepEqual(t1.body.report.saved, []); // only admins can keep raw files
   assert.deepEqual(t1.body.samples, []);
-  assert.equal((await call('POST', '/api/portals/stop_market/test', {}, user.cookie)).status, 429);
-  assert.equal((await call('POST', '/api/portals/shufersal/test', {}, user.cookie)).status, 200); // per chain
+  assert.equal((await call('POST', '/api/m/price-compare/portals/stop_market/test', {}, user.cookie)).status, 429);
+  assert.equal((await call('POST', '/api/m/price-compare/portals/shufersal/test', {}, user.cookie)).status, 200); // per chain
 
   // admins are not limited, and may keep files
-  for (let i = 0; i < 2; i++) assert.equal((await call('POST', '/api/portals/stop_market/test', { save: i === 1 }, admin.cookie)).status, 200);
-  assert.equal((await call('POST', '/api/portals/refresh', {}, admin.cookie)).status, 200); await idle();
-  assert.equal((await call('POST', '/api/portals/refresh', {}, admin.cookie)).status, 200); await idle();
+  for (let i = 0; i < 2; i++) assert.equal((await call('POST', '/api/m/price-compare/portals/stop_market/test', { save: i === 1 }, admin.cookie)).status, 200);
+  assert.equal((await call('POST', '/api/m/price-compare/portals/refresh', {}, admin.cookie)).status, 200); await idle();
+  assert.equal((await call('POST', '/api/m/price-compare/portals/refresh', {}, admin.cookie)).status, 200); await idle();
 
   // everything that changes the setup stays admin-only
-  assert.equal((await call('PUT', '/api/admin/portals/stop_market', { enabled: false }, user.cookie)).status, 403);
-  assert.equal((await call('POST', '/api/admin/portals/custom', { name: 'x', user: 'abc' }, user.cookie)).status, 403);
-  assert.equal((await call('GET', '/api/admin/portals', undefined, user.cookie)).status, 403);
-  assert.equal((await call('GET', '/api/admin/portals/samples/stop_market/x', undefined, user.cookie)).status, 403);
-  assert.equal((await call('POST', '/api/portals/victory/test', {}, user.cookie)).status, 404);
+  assert.equal((await call('PUT', '/api/m/price-compare/admin/portals/stop_market', { enabled: false }, user.cookie)).status, 403);
+  assert.equal((await call('POST', '/api/m/price-compare/admin/portals/custom', { name: 'x', user: 'abc' }, user.cookie)).status, 403);
+  assert.equal((await call('GET', '/api/m/price-compare/admin/portals', undefined, user.cookie)).status, 403);
+  assert.equal((await call('GET', '/api/m/price-compare/admin/portals/samples/stop_market/x', undefined, user.cookie)).status, 403);
+  assert.equal((await call('POST', '/api/m/price-compare/portals/victory/test', {}, user.cookie)).status, 404);
   assert.ok(fake.state.hits.shared >= 1);
   await close();
 });

@@ -5,17 +5,18 @@ import { LIST_COLORS, type Detail, type Entry, type Me } from './types';
 import ShopTab from './ShopTab';
 import ManageTab from './ManageTab';
 import HistoryTab from './HistoryTab';
-import CompareTab from './CompareTab';
 import TabMenu from './TabMenu';
 import { useNarrow } from './util';
+import { useSlots } from './slots';
 import { effectiveCurrency } from './money';
 import { uploadReceiptPhoto } from './imaging';
 
 export default function ListView({ listId, me, onBack }: { listId: number; me: Me; onBack: () => void }) {
   const [data, setData] = useState<Detail | null>(null);
-  const [tab, setTab] = useState<'shop' | 'manage' | 'history' | 'compare'>('shop'); // opens straight into Shop mode
+  const [tab, setTab] = useState<string>('shop'); // opens straight into Shop mode
   const [error, setError] = useState('');
   const narrow = useNarrow();
+  const moduleTabs = useSlots('list.tab', { me, data: data ?? undefined }); // tabs added by modules (for example Compare prices)
 
   const load = useCallback(async () => {
     try { setData(await api<Detail>(`/lists/${listId}`)); }
@@ -35,9 +36,8 @@ export default function ListView({ listId, me, onBack }: { listId: number; me: M
   const { list } = data;
   const isEditor = list.role !== 'viewer'; // "Shoppers" (viewer) only get the Shop tab
   const color = LIST_COLORS[list.color] ?? LIST_COLORS.green;
-  const canCompare = me.compareEnabled && effectiveCurrency(me) === 'ILS'; // store prices are Israeli; hidden for other currencies
   // Shop and Manage list are always one tap away; the rest sit in a drop-down on phones so the tab row never wraps.
-  const secondary = [...(canCompare ? [{ id: 'compare', label: t('tabCompare') }] : []), { id: 'history', label: t('tabHistory') }];
+  const secondary = [...moduleTabs.map((m) => ({ id: `${m.moduleId}:${m.id}`, label: m.title() })), { id: 'history', label: t('tabHistory') }];
 
   // Optimistic check/uncheck so taps feel instant; rolled back if the server refuses.
   const toggle = async (e: Entry, checked: boolean) => {
@@ -77,14 +77,14 @@ export default function ListView({ listId, me, onBack }: { listId: number; me: M
         <button aria-pressed={tab === 'shop'} onClick={() => setTab('shop')}>{t('tabShop')}</button>
         {isEditor && <button aria-pressed={tab === 'manage'} onClick={() => setTab('manage')}>{t('tabManage')}</button>}
         {narrow
-          ? <TabMenu items={secondary} current={tab} onPick={(id) => setTab(id as typeof tab)} />
-          : secondary.map((i) => <button key={i.id} aria-pressed={tab === i.id} onClick={() => setTab(i.id as typeof tab)}>{i.label}</button>)}
+          ? <TabMenu items={secondary} current={tab} onPick={(id) => setTab(id)} />
+          : secondary.map((i) => <button key={i.id} aria-pressed={tab === i.id} onClick={() => setTab(i.id)}>{i.label}</button>)}
       </div>
       {error && <p className="error" role="alert">{error}</p>}
 
       {tab === 'shop' && <ShopTab data={data} me={me} onToggle={toggle} onFinish={finish} />}
       {isEditor && tab === 'manage' && <ManageTab data={data} me={me} reload={load} onDeleted={onBack} />}
-      {canCompare && tab === 'compare' && <CompareTab data={data} reload={load} />}
+      {moduleTabs.map((m) => tab === `${m.moduleId}:${m.id}` && <m.component key={`${m.moduleId}:${m.id}`} data={data} me={me} reload={load} />)}
       {tab === 'history' && <HistoryTab data={data} me={me} reload={load} />}
     </div>
   );

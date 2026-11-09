@@ -1,6 +1,5 @@
 import { audit } from '../util.js';
 import { makeAccess } from '../access.js';
-import { makeChains } from '../chains.js';
 
 const bad = (reply, error, code = 400) => reply.code(code).send({ error });
 const cleanText = (s, max) => (typeof s === 'string' ? s.trim().replace(/\s+/g, ' ').slice(0, max) : '');
@@ -135,10 +134,9 @@ export default async function shoppingRoutes(app) {
     const s = storeAccess(req.user, Number(req.params.id));
     if (!s) return bad(reply, 'not_found', 404);
     const b = req.body || {};
-    let name = s.name, chain = s.chain;
+    let name = s.name;
     if (b.name !== undefined) { name = cleanText(b.name, 60); if (!name) return bad(reply, 'invalid_name'); }
-    if (b.chain !== undefined) { chain = b.chain || null; if (chain && !makeChains(db).get(chain)?.supported) return bad(reply, 'invalid_value'); }
-    db.prepare('UPDATE stores SET name = ?, chain = ? WHERE id = ?').run(name, chain, s.id);
+    db.prepare('UPDATE stores SET name = ? WHERE id = ?').run(name, s.id);
     return { ok: true };
   });
 
@@ -146,6 +144,7 @@ export default async function shoppingRoutes(app) {
     const s = storeAccess(req.user, Number(req.params.id));
     if (!s) return bad(reply, 'not_found', 404);
     db.prepare('DELETE FROM stores WHERE id = ?').run(s.id);
+    app.modules.events.emit('store.deleted', { storeId: s.id, householdId: s.household_id });
     return { ok: true };
   });
 

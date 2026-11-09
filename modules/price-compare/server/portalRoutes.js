@@ -1,28 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { audit } from '../util.js';
-import { makeChains, publicChain } from '../chains.js';
-import { runPortalTest, listSamples, samplesDir } from '../portals/diagnostics.js';
-import { citiesFetchedAt } from '../portals/cities.js';
+import { publicChain } from './chains.js';
+import { runPortalTest, listSamples, samplesDir } from './portals/diagnostics.js';
+import { citiesFetchedAt } from './portals/cities.js';
 
 const bad = (reply, error, code = 400) => reply.code(code).send({ error });
 
-export default async function portalRoutes(app) {
-  const db = app.db;
-  const user = { preHandler: app.auth() };
-  const admin = { preHandler: app.auth({ admin: true }) };
-  const dir = app.directory;
-  const chains = makeChains(db);
+export default function portalRoutes(ctx, { chains, dir, portals }) {
+  const db = ctx.db;
+  const audit = (_db, actor, action, target) => ctx.audit(actor, action, target);
 
   // ---- for the city and branch pickers (public price-file data, shared by all households) ----
-  app.get('/api/portals/cities', user, async () => {
+  ctx.routes.get('/portals/cities', async () => {
     dir.ensureFresh(); // lazy: the first visit loads the directory in the background
     const job = dir.status();
     const cities = dir.listCities();
     return { loading: !!job?.running, progress: job ? { done: job.done, total: job.total } : null, cities, chains: chains.all().map(publicChain), stats: dir.chainStats() };
   });
 
-  app.get('/api/portals/branches', user, async (req) => {
+  ctx.routes.get('/portals/branches', async (req) => {
     const split = (v) => (typeof v === 'string' && v ? v.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 60) : []);
     return { branches: dir.listBranches({ cities: split(req.query.cities), chainIds: req.query.chains ? split(req.query.chains) : undefined }) };
   });
@@ -56,13 +52,13 @@ export default async function portalRoutes(app) {
     });
   };
 
-  app.get('/api/admin/portals', admin, async () => ({
+  ctx.routes.get('/admin/portals', { access: 'admin' }, async () => ({
     chains: overview(), job: dir.status(), citiesFetchedAt: citiesFetchedAt(db) || null,
-    cityNames: db.prepare("SELECT source, COUNT(*) AS n FROM city_names GROUP BY source").all(), samples: listSamples(app.dataDir),
-    baseUrls: app.portals.baseUrls,
+    cityNames: db.prepare("SELECT source, COUNT(*) AS n FROM city_names GROUP BY source").all(), samples: listSamples(ctx.filesDir),
+    baseUrls: portals.baseUrls,
   }));
 
-  app.put('/api/admin/portals/:chain', admin, async (req, reply) => {
+  ctx.routes.put('/admin/portals/:chain', { access: 'admin' }, async (req, reply) => {
     const c = chains.get(req.params.chain);
     if (!c || !c.supported) return bad(reply, 'not_found', 404);
     const on = req.body?.enabled;
@@ -72,13 +68,13 @@ export default async function portalRoutes(app) {
     return { ok: true };
   });
 
-  app.get('/api/portals/status', user, async (req) => ({
+  ctx.routes.get('/portals/status', async (req) => ({
     chains: overview(), job: dir.status(), citiesFetchedAt: citiesFetchedAt(db) || null,
     cityNames: db.prepare('SELECT source, COUNT(*) AS n FROM city_names GROUP BY source').all(), isAdmin: isAdmin(req.user),
   }));
 
   // Reload branch lists now (all usable chains, or one).
-  app.post('/api/portals/refresh', user, async (req, reply) => {
+  ctx.routes.post('/portals/refresh', async (req, reply) => {
     const only = req.body?.chain ? [req.body.chain] : undefined;
     if (only && !chains.usable(only[0])) return bad(reply, 'not_found', 404);
     if (!dir.status()?.running && cooldown(req.user, 'refresh', only?.[0] ?? 'all', 300, reply)) return reply;
@@ -88,7 +84,7 @@ export default async function portalRoutes(app) {
 
   // Diagnostics for one chain: login, Stores file, a PriceFull file for one branch, dry-run parse.
   const testing = new Set();
-  app.post('/api/portals/:chain/test', user, async (req, reply) => {
+  ctx.routes.post('/portals/:chain/test', async (req, reply) => {
     const c = chains.get(req.params.chain);
     if (!c || !c.supported) return bad(reply, 'not_found', 404);
     if (testing.has(c.id)) return bad(reply, 'try_later', 429);
@@ -97,31 +93,31 @@ export default async function portalRoutes(app) {
     const save = isAdmin(req.user) && !!req.body?.save;
     testing.add(c.id);
     try {
-      const report = await runPortalTest({ chain: c, portals: app.portals, storeId, save, dataDir: app.dataDir });
+      const report = await runPortalTest({ chain: c, portals: portals, storeId, save, dataDir: ctx.filesDir });
       audit(db, req.user.id, 'portals.test', `${c.id}${report.saved.length ? ' (+sample)' : ''}`);
-      return { report, samples: isAdmin(req.user) ? listSamples(app.dataDir) : [] };
+      return { report, samples: isAdmin(req.user) ? listSamples(ctx.filesDir) : [] };
     } finally { testing.delete(c.id); }
   });
 
-  app.get('/api/admin/portals/samples/:chain/:file', admin, async (req, reply) => {
+  ctx.routes.get('/admin/portals/samples/:chain/:file', { access: 'admin' }, async (req, reply) => {
     const { chain, file } = req.params;
     if (!/^[\w.\-]+$/.test(chain) || !/^[\w.\-]+$/.test(file)) return bad(reply, 'not_found', 404);
-    const p = path.join(samplesDir(app.dataDir), chain, file);
+    const p = path.join(samplesDir(ctx.filesDir), chain, file);
     if (!fs.existsSync(p)) return bad(reply, 'not_found', 404);
     reply.header('content-type', 'application/octet-stream').header('content-disposition', `attachment; filename="${file}"`);
     return reply.send(fs.readFileSync(p));
   });
 
-  app.delete('/api/admin/portals/samples/:chain/:file', admin, async (req, reply) => {
+  ctx.routes.delete('/admin/portals/samples/:chain/:file', { access: 'admin' }, async (req, reply) => {
     const { chain, file } = req.params;
     if (!/^[\w.\-]+$/.test(chain) || !/^[\w.\-]+$/.test(file)) return bad(reply, 'not_found', 404);
-    const p = path.join(samplesDir(app.dataDir), chain, file);
+    const p = path.join(samplesDir(ctx.filesDir), chain, file);
     if (fs.existsSync(p)) fs.unlinkSync(p);
     return { ok: true };
   });
 
   // Experimental: try another chain of the shared portal by its public username (for example to test Victory or Hazi Hinam).
-  app.post('/api/admin/portals/custom', admin, async (req, reply) => {
+  ctx.routes.post('/admin/portals/custom', { access: 'admin' }, async (req, reply) => {
     const name = typeof req.body?.name === 'string' ? req.body.name.trim().replace(/\s+/g, ' ').slice(0, 60) : '';
     const u = typeof req.body?.user === 'string' ? req.body.user.trim() : '';
     if (!name || !/^[A-Za-z0-9_.\-]{2,40}$/.test(u)) return bad(reply, 'invalid_value');
@@ -132,12 +128,13 @@ export default async function portalRoutes(app) {
     return { id };
   });
 
-  app.delete('/api/admin/portals/custom/:id', admin, async (req, reply) => {
+  ctx.routes.delete('/admin/portals/custom/:id', { access: 'admin' }, async (req, reply) => {
     const r = db.prepare('DELETE FROM custom_chains WHERE id = ?').run(req.params.id);
     if (!r.changes) return bad(reply, 'not_found', 404);
     db.prepare('DELETE FROM portal_branches WHERE chain = ?').run(req.params.id);
     db.prepare('DELETE FROM portal_chain_state WHERE chain = ?').run(req.params.id);
     db.prepare('DELETE FROM list_compare_stores WHERE chain = ?').run(req.params.id);
+    db.prepare('DELETE FROM store_chain WHERE chain = ?').run(req.params.id);
     audit(db, req.user.id, 'admin.portal_custom_removed', req.params.id);
     return { ok: true };
   });

@@ -42,7 +42,10 @@ export default async function householdRoutes(app) {
     const h = db.prepare('SELECT * FROM households WHERE id = ?').get(hid);
     const confirm = String((req.body || {}).confirmName || '').trim().toLowerCase();
     if (!confirm || confirm !== h.name.trim().toLowerCase()) return bad(reply, 'name_mismatch');
+    const listIds = db.prepare('SELECT id FROM lists WHERE household_id = ?').all(hid).map((r) => r.id);
+    const storeIds = db.prepare('SELECT id FROM stores WHERE household_id = ?').all(hid).map((r) => r.id);
     db.prepare('DELETE FROM households WHERE id = ?').run(hid);
+    app.modules.events.emit('household.deleted', { householdId: hid, listIds, storeIds });
     fs.rmSync(path.join(app.dataDir, 'receipts', String(hid)), { recursive: true, force: true });
     audit(db, req.user.id, 'household.deleted', h.name);
     return { ok: true };

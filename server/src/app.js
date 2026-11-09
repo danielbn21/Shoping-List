@@ -5,6 +5,7 @@ import fstatic from '@fastify/static';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { openDb } from './db.js';
 import { registerAuth } from './auth.js';
 import authRoutes from './routes/auth.js';
@@ -14,39 +15,39 @@ import shoppingRoutes from './routes/shopping.js';
 import householdRoutes from './routes/households.js';
 import historyRoutes from './routes/history.js';
 import itemsCsvRoutes from './routes/itemsCsv.js';
-import compareRoutes from './routes/compare.js';
-import portalRoutes from './routes/portals.js';
-import { createHttp } from './portals/http.js';
-import { createPortals } from './portals/clients.js';
-import { createDirectory } from './portals/directory.js';
+import moduleRoutes from './routes/modules.js';
 import { makeSecrets } from './secrets.js';
-import { createOcr } from './ocr.js';
+import { createModules } from './modules/manager.js';
+import { createReceiptQueue } from './receipts.js';
+import { userPayload } from './util.js';
 
 export const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
-// portalOptions (tests, and the PORTAL_URL_* environment variables) can point the three portal clients and the city list at other servers.
-export async function buildApp({ dataDir, webDir, logger = true, ocrRun, portalOptions = {} } = {}) {
+// Modules that ship with the app are looked for in MODULES_DIR, then next to src/ (Docker image), then in the repository root.
+function findBundledDir() {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return [process.env.MODULES_DIR, path.resolve(here, '../modules'), path.resolve(here, '../../modules')].find((d) => d && fs.existsSync(d)) ?? null;
+}
+
+// bundledDir: false starts without bundled modules (core tests). moduleOptions[<id>] reaches that module as ctx.options (tests).
+// onRestart replaces the default "close and exit" so tests can observe the admin's Restart button.
+export async function buildApp({ dataDir, webDir, logger = true, bundledDir, moduleOptions = {}, onRestart } = {}) {
   const app = Fastify({ logger, trustProxy: true, bodyLimit: 1_000_000 });
   app.decorate('db', openDb(dataDir));
   app.decorate('dataDir', dataDir);
+  app.decorate('coreVersion', VERSION);
   app.decorate('secrets', makeSecrets(dataDir));
-  app.decorate('ocr', createOcr(app, ocrRun ? { run: ocrRun } : {}));
-  const env = process.env;
-  const portalHttp = createHttp({ fetchImpl: portalOptions.fetch });
-  const baseUrls = {
-    ...(env.PORTAL_URL_SHUFERSAL && { shufersal: env.PORTAL_URL_SHUFERSAL }), ...(env.PORTAL_URL_SHARED && { shared: env.PORTAL_URL_SHARED }),
-    ...(env.PORTAL_URL_CARREFOUR && { carrefour: env.PORTAL_URL_CARREFOUR }), ...portalOptions.baseUrls,
-  };
-  app.decorate('portals', createPortals({ http: portalHttp, baseUrls }));
-  app.decorate('directory', createDirectory({
-    db: app.db, portals: app.portals, http: portalHttp, citiesUrl: portalOptions.citiesUrl ?? env.PORTAL_CITIES_URL,
-    delayMs: portalOptions.delayMs ?? 400,
-  }));
+  app.decorate('modules', createModules(app, { bundledDir: bundledDir === false ? null : (bundledDir ?? findBundledDir()), moduleOptions, coreVersion: VERSION }));
+  app.decorate('receipts', createReceiptQueue(app));
+  app.decorate('userPayload', (u) => ({ ...userPayload(app.db, u), ...app.modules.payloadFor(u) }));
+  app.decorate('requestRestart', () => setTimeout(() => (onRestart ? onRestart() : app.close().finally(() => process.exit(0))), 400).unref?.());
   await app.register(cookie);
   await app.register(rateLimit, { global: false });
   registerAuth(app);
   // Receipt photos arrive as raw image bytes (the web app compresses them first).
   app.addContentTypeParser(['image/jpeg', 'image/png', 'image/webp'], { parseAs: 'buffer', bodyLimit: 12 * 1024 * 1024 }, (req, body, done) => done(null, body));
+  // Module zips arrive as raw bytes too.
+  app.addContentTypeParser(['application/zip', 'application/x-zip-compressed', 'application/octet-stream'], { parseAs: 'buffer', bodyLimit: 21 * 1024 * 1024 }, (req, body, done) => done(null, body));
 
   // CSRF defence in depth (cookies are also SameSite=Lax): API writes must carry our custom header.
   app.addHook('onRequest', async (req, reply) => {
@@ -71,8 +72,8 @@ export async function buildApp({ dataDir, webDir, logger = true, ocrRun, portalO
   await app.register(householdRoutes);
   await app.register(historyRoutes);
   await app.register(itemsCsvRoutes);
-  await app.register(compareRoutes);
-  await app.register(portalRoutes);
+  await app.register(moduleRoutes);
+  await app.modules.load(); // installed and enabled modules register their routes, capabilities and event handlers here
 
   if (webDir && fs.existsSync(webDir)) {
     await app.register(fstatic, {
@@ -95,7 +96,7 @@ export async function buildApp({ dataDir, webDir, logger = true, ocrRun, portalO
     app.db.prepare('DELETE FROM password_resets WHERE expires_at < ? OR used = 1').run(now);
   }, 3600 * 1000);
   timer.unref();
-  app.addHook('onReady', async () => { app.ocr.resume(); });
+  app.addHook('onReady', async () => { app.receipts.resume(); });
   app.addHook('onClose', async () => { clearInterval(timer); app.db.close(); });
 
   return app;

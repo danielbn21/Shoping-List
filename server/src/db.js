@@ -328,6 +328,44 @@ CREATE TABLE list_compare_cities (
   PRIMARY KEY (list_id, city_key)
 );
 `,
+// 7: modules (1.3.0). Portals, price comparison and receipt reading moved out of the core into modules with their own databases
+// (data/modules/<id>/data.db), so their tables, the store-to-chain link and the per-user OCR settings are dropped here.
+// `modules` is the registry of installed modules; `module_access` holds the admin's grant and the user's own on/off switch
+// (no row means granted and on).
+`
+DROP TABLE IF EXISTS list_compare_stores;
+DROP TABLE IF EXISTS list_compare_cities;
+DROP TABLE IF EXISTS portal_branches;
+DROP TABLE IF EXISTS portal_chain_state;
+DROP TABLE IF EXISTS custom_chains;
+DROP TABLE IF EXISTS city_names;
+DROP TABLE IF EXISTS portal_meta;
+DROP TABLE IF EXISTS user_ocr;
+ALTER TABLE stores DROP COLUMN chain;
+CREATE TABLE modules (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'feature',
+  version TEXT NOT NULL,
+  prev_version TEXT,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'installed' CHECK (status IN ('installed','quarantined','removed')),
+  error TEXT,
+  source TEXT NOT NULL DEFAULT 'upload' CHECK (source IN ('upload','bundled')),
+  sha256 TEXT,
+  remove_pending INTEGER NOT NULL DEFAULT 0,
+  purge_pending INTEGER NOT NULL DEFAULT 0,
+  installed_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE module_access (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  module_id TEXT NOT NULL,
+  granted INTEGER NOT NULL DEFAULT 1,
+  user_on INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (user_id, module_id)
+);
+`,
 ];
 
 export function openDb(dataDir) {

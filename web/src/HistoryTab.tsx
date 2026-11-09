@@ -163,7 +163,7 @@ function TripDetail({ id, me, listId, onChanged }: { id: number; me: Me; listId:
                 {r.ocrStatus === 'pending' && <span className="chip warn">{t('ocrPending')}</span>}
                 {r.ocrStatus === 'failed' && <span className="muted">{t('ocrFailedMsg', { reason: r.ocrError ?? '' })}</span>}
                 {r.ocrStatus === 'done' && <button className="btn small primary" onClick={() => setReviewId(reviewId === r.id ? null : r.id)}>{t('reviewReceipt')}</button>}
-                {me.ocrEnabled && r.ocrStatus !== 'pending' && (
+                {me.capabilities.includes('receipt-reader') && r.ocrStatus !== 'pending' && (
                   <button className="btn small" onClick={() => run(() => api(`/receipts/${r.id}/scan`, { method: 'POST', body: {} }), false)}>{r.ocrStatus === 'done' ? t('readAgain') : t('readReceipt')}</button>
                 )}
                 <button className="btn small danger" onClick={() => { if (confirm(t('confirmDeleteReceipt'))) run(() => api(`/receipts/${r.id}`, { method: 'DELETE' })); }}>{t('deleteReceipt')}</button>

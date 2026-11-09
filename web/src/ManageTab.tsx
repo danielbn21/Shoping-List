@@ -9,15 +9,14 @@ import { t, errText, getLang, timeAgo } from './i18n';
 import { catName, fmt } from './util';
 import { SortableList, SortableRow, useDndSensors } from './dnd';
 import type { Cat, Detail, Entry, Me, PastItem, Store } from './types';
-import CompareSettings from './CompareSettings';
-import { effectiveCurrency } from './money';
+import { useSlots } from './slots';
 
 type Props = { data: Detail; me: Me; reload: () => Promise<void>; onDeleted: () => void };
 
 // The active screen: everything that changes what is on the list or how it is organised.
 export default function ManageTab({ data, me, reload, onDeleted }: Props) {
   const isOwner = data.list.role === 'owner';
-  const canCompare = me.compareEnabled && effectiveCurrency(me) === 'ILS';
+  const moduleSections = useSlots('manage.section', { me, data }); // sections added by modules
   return (
     <div className="stack">
       <AddItem data={data} reload={reload} />
@@ -26,7 +25,7 @@ export default function ManageTab({ data, me, reload, onDeleted }: Props) {
       <Collapsible title={t('csvTitle')}><CsvCard data={data} reload={reload} /></Collapsible>
       <Collapsible title={t('categoriesOrder')}><CategoriesCard data={data} reload={reload} /></Collapsible>
       <Collapsible title={t('stores')}><StoresCard data={data} reload={reload} /></Collapsible>
-      {canCompare && <Collapsible title={t('tabCompare')}><CompareSettings data={data} reload={reload} /></Collapsible>}
+      {moduleSections.map((m) => <Collapsible key={`${m.moduleId}:${m.id}`} title={m.title()}><m.component data={data} me={me} reload={reload} /></Collapsible>)}
       {isOwner && <Collapsible title={t('people')}><PeopleCard data={data} /></Collapsible>}
       {isOwner && <Collapsible title={t('listNameLabel')}><ListSettings data={data} reload={reload} onDeleted={onDeleted} /></Collapsible>}
     </div>

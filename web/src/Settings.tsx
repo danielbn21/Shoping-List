@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
-import PortalsPanel from './PortalsPanel';
+import ModulesUser from './ModulesUser';
+import { ModuleSettingsSections } from './ModuleSections';
 import { t, errText, timeAgo, type Lang } from './i18n';
 import { CURRENCIES, currencyName, detectCurrency } from './money';
 import type { Cfg, Me } from './types';
@@ -91,9 +92,9 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
         </div>
       </form>
 
-      <OcrSettings me={me} onChange={onChange} />
+      <ModuleSettingsSections me={me} onChange={onChange} />
 
-      <PortalsSection />
+      <ModulesUser me={me} onChange={onChange} />
 
       <section className="card stack-sm">
         <h2>{t('devices')}</h2>
@@ -111,64 +112,5 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
       <div><button className="btn" onClick={onLogout}>{t('signOut')}</button></div>
       <p className="muted" dir="ltr">{t('versionLine', { web: __APP_VERSION__, server: cfg.version ?? '?' })}</p>
     </div>
-  );
-}
-
-function OcrSettings({ me, onChange }: { me: Me; onChange: () => void }) {
-  const [engine, setEngine] = useState(me.ocr.engine);
-  const [provider, setProvider] = useState(me.ocr.provider);
-  const [model, setModel] = useState(me.ocr.model);
-  const [key, setKey] = useState('');
-  const [msg, setMsg] = useState('');
-  const [error, setError] = useState('');
-  const defaults: Record<string, string> = { anthropic: 'claude-sonnet-5-5', openai: 'gpt-4o', gemini: 'gemini-2.0-flash' };
-
-  const save = async (e: FormEvent, extra: Record<string, unknown> = {}) => {
-    e.preventDefault(); setError(''); setMsg('');
-    try {
-      await api('/me/ocr', { method: 'PUT', body: { engine, provider, model, ...(key ? { apiKey: key } : {}), ...extra } });
-      setKey(''); await onChange(); setMsg(t('saved'));
-    } catch (err) { setError(errText(err)); }
-  };
-
-  return (
-    <form className="card stack" onSubmit={save}>
-      <div><h2>{t('ocrTitle')}</h2><p className="muted">{t('ocrHelp')}</p></div>
-      {!me.ocrEnabled && <p className="error">{t('ocrDisabledByAdmin')}</p>}
-      <label className="field"><span>{t('ocrEngine')}</span>
-        <select value={engine} onChange={(e) => setEngine(e.target.value as typeof engine)}>
-          <option value="auto">{t('ocrAuto')}</option>
-          <option value="local">{t('ocrLocal')}</option>
-          <option value="cloud">{t('ocrCloud')}</option>
-        </select></label>
-      <label className="field"><span>{t('ocrProvider')}</span>
-        <select value={provider} onChange={(e) => setProvider(e.target.value as typeof provider)}>
-          <option value="anthropic">Anthropic (Claude)</option>
-          <option value="openai">OpenAI</option>
-          <option value="gemini">Google (Gemini)</option>
-        </select></label>
-      <label className="field"><span>{t('ocrModel')}</span>
-        <input type="text" dir="ltr" autoCapitalize="none" autoCorrect="off" value={model} placeholder={defaults[provider]} onChange={(e) => setModel(e.target.value)} /></label>
-      <label className="field"><span>{t('ocrKey')}</span>
-        <input type="password" dir="ltr" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={me.ocr.hasKey ? '••••••••' : ''} />
-        {me.ocr.hasKey && <span className="muted" style={{ fontWeight: 400 }}>{t('ocrKeySaved')}</span>}</label>
-      <div className="row">
-        <button className="btn primary" type="submit">{t('save')}</button>
-        {me.ocr.hasKey && <button className="btn danger" type="button" onClick={(e) => save(e as unknown as FormEvent, { apiKey: '' })}>{t('ocrRemoveKey')}</button>}
-        {msg && <span className="ok" role="status">{msg}</span>}
-        {error && <span className="error" role="alert">{error}</span>}
-      </div>
-    </form>
-  );
-}
-
-// Supermarket portals: price-file sources. Mounted only when opened, so visiting Settings never calls the portals.
-function PortalsSection() {
-  const [open, setOpen] = useState(false);
-  return (
-    <details className="card" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
-      <summary style={{ fontWeight: 800, cursor: 'pointer', minHeight: 32, fontSize: '1.1rem' }}>{t('portalsTitle')}</summary>
-      {open && <div style={{ marginTop: 12 }}><PortalsPanel /></div>}
-    </details>
   );
 }

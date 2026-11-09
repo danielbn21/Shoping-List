@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from './api';
-import { t, errText, timeAgo } from './i18n';
+import { api, t, errText, timeAgo } from './sdk';
 import { chainLabel } from './CompareTab';
 import type { AdminChain, PortalReport, PortalSample, RefreshJob } from './types';
 
@@ -85,7 +84,7 @@ export default function PortalsPanel() {
           <div className="row between" key={`${s.chain}/${s.file}`}>
             <span dir="ltr" style={{ overflowWrap: 'anywhere' }}>{s.chain}/{s.file} <span className="muted">· {kb(s.size)}</span></span>
             <span className="row">
-              <a className="btn small" href={`/api/admin/portals/samples/${s.chain}/${s.file}`} download>{t('portalDownload')}</a>
+              <a className="btn small" href={`/api/m/price-compare/admin/portals/samples/${s.chain}/${s.file}`} download>{t('portalDownload')}</a>
               <button className="btn small danger" onClick={() => act(() => api(`/admin/portals/samples/${s.chain}/${s.file}`, { method: 'DELETE' }))}>{t('removeItem')}</button>
             </span>
           </div>

@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from './api';
-import { t, errText, getLang } from './i18n';
-import { formatMoney } from './money';
+import { api, t, errText, getLang, formatMoney } from './sdk';
 import CompareSettings from './CompareSettings';
-import type { CompareData, CompareResult, Detail } from './types';
+import type { Detail } from '../../../web/src/types';
+import type { CompareData, CompareResult } from './types';
 
 const CUR = 'ILS';
 export const chainLabel = (r: { nameEn: string; nameHe: string; branchName?: string | null }) =>
@@ -25,7 +24,6 @@ export default function CompareTab({ data, reload }: { data: Detail; reload: () 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [load, stamp]);
 
   if (!c) return <p className={error ? 'error' : 'muted'}>{error || t('loading')}</p>;
-  if (!c.enabled) return <p className="muted">{t('compareOff')}</p>;
 
   const best = c.results[0];
   const key = (r: CompareResult) => r.chain;

@@ -4,14 +4,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildApp } from '../src/app.js';
-import { parseReceiptText } from '../src/ocr.js';
+import { parseReceiptText } from '../../modules/receipt-ocr/server/ocr.js';
 
 const H = { 'x-sl-client': 'web', 'content-type': 'application/json' };
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(300, 7)]);
 
 async function boot(ocrRun) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-'));
-  const app = await buildApp({ dataDir, logger: false, ocrRun });
+  const app = await buildApp({ dataDir, logger: false, moduleOptions: { 'receipt-ocr': { run: ocrRun } } });
   const call = async (method, url, body, cookie, headers) => {
     const res = await app.inject({ method, url, headers: { ...H, ...(headers || {}), ...(cookie ? { cookie } : {}) }, payload: body === undefined ? undefined : (Buffer.isBuffer(body) ? body : JSON.stringify(body)) });
     const c = res.cookies.find((x) => x.name === 'sl_session');
@@ -96,7 +96,7 @@ test('receipt photo: validated, stored, read by OCR, reviewed and applied', asyn
   const r = await up(JPEG);
   assert.equal(r.status, 200);
   assert.equal(r.body.ocrStatus, 'pending');
-  await app.ocr.idle();
+  await app.receipts.idle();
   assert.equal((await call('GET', `/api/receipts/${r.body.id}/image`, undefined, admin.cookie)).headers['content-type'], 'image/jpeg');
 
   const rv = (await call('GET', `/api/receipts/${r.body.id}`, undefined, admin.cookie)).body;
@@ -127,15 +127,15 @@ test('receipt photo: validated, stored, read by OCR, reviewed and applied', asyn
   await app.close();
 });
 
-test('OCR can be switched off by the admin; failures surface as a status', async () => {
+test('Receipt reading can be switched off (module disabled); failures surface as a status', async () => {
   const ocrRun = { tesseract: async () => { throw new Error('tesseract_not_installed'); }, cloud: async () => ({}) };
   const { app, call, admin, trip } = await boot(ocrRun);
   const f = await trip([['Milk', 1]]);
   const r = await call('POST', `/api/trips/${f.tripId}/receipts`, JPEG, admin.cookie, { 'content-type': 'image/jpeg' });
-  await app.ocr.idle();
+  await app.receipts.idle();
   const v = (await call('GET', `/api/receipts/${r.body.id}`, undefined, admin.cookie)).body;
   assert.deepEqual([v.ocrStatus, v.ocrError], ['failed', 'tesseract_not_installed']);
-  await call('PUT', '/api/admin/settings', { ocr_enabled: false }, admin.cookie);
+  assert.equal((await call('POST', '/api/admin/modules/receipt-ocr/disable', {}, admin.cookie)).status, 200); // the module is the switch now
   assert.equal((await call('POST', `/api/receipts/${r.body.id}/scan`, {}, admin.cookie)).body.error, 'ocr_disabled');
   const r2 = await call('POST', `/api/trips/${f.tripId}/receipts`, JPEG, admin.cookie, { 'content-type': 'image/jpeg' });
   assert.equal(r2.body.ocrStatus, 'none'); // photo still saved
@@ -152,27 +152,27 @@ test('cloud OCR is used only with the user\'s own key, which is stored encrypted
   const f = await trip([['Milk', 1]]);
   const up = () => call('POST', `/api/trips/${f.tripId}/receipts`, JPEG, admin.cookie, { 'content-type': 'image/jpeg' });
 
-  await up(); await app.ocr.idle();
+  await up(); await app.receipts.idle();
   assert.equal(seen.length, 0); // no key: local engine
 
-  const put = await call('PUT', '/api/me/ocr', { engine: 'auto', provider: 'openai', model: 'gpt-x', apiKey: 'sk-SECRET-123' }, admin.cookie);
-  assert.equal(put.body.user.ocr.hasKey, true);
+  const put = await call('PUT', '/api/m/receipt-ocr/settings', { engine: 'auto', provider: 'openai', model: 'gpt-x', apiKey: 'sk-SECRET-123' }, admin.cookie);
+  assert.equal(put.body.settings.hasKey, true);
   assert.ok(!put.text.includes('SECRET'));
-  const stored = app.db.prepare('SELECT api_key_enc FROM user_ocr').get().api_key_enc;
+  const stored = app.modules.loaded.get('receipt-ocr').db.prepare('SELECT api_key_enc FROM user_ocr').get().api_key_enc;
   assert.ok(stored && !stored.includes('SECRET')); // ciphertext at rest
   assert.equal(app.secrets.decrypt(stored), 'sk-SECRET-123');
 
-  const r = await up(); await app.ocr.idle();
+  const r = await up(); await app.receipts.idle();
   assert.equal(seen.length, 1);
   assert.deepEqual([seen[0].provider, seen[0].apiKey, seen[0].model], ['openai', 'sk-SECRET-123', 'gpt-x']);
   assert.equal((await call('GET', `/api/receipts/${r.body.id}`, undefined, admin.cookie)).body.result.engine, 'cloud');
 
-  await call('PUT', '/api/me/ocr', { engine: 'local' }, admin.cookie); // explicit local wins over a saved key
-  await up(); await app.ocr.idle();
+  await call('PUT', '/api/m/receipt-ocr/settings', { engine: 'local' }, admin.cookie); // explicit local wins over a saved key
+  await up(); await app.receipts.idle();
   assert.equal(seen.length, 1);
-  await call('PUT', '/api/me/ocr', { apiKey: '' }, admin.cookie);   // removing the key
-  assert.equal((await call('GET', '/api/me', undefined, admin.cookie)).body.user.ocr.hasKey, false);
-  assert.equal((await call('PUT', '/api/me/ocr', { provider: 'nope' }, admin.cookie)).status, 400);
+  await call('PUT', '/api/m/receipt-ocr/settings', { apiKey: '' }, admin.cookie);   // removing the key
+  assert.equal((await call('GET', '/api/m/receipt-ocr/settings', undefined, admin.cookie)).body.settings.hasKey, false);
+  assert.equal((await call('PUT', '/api/m/receipt-ocr/settings', { provider: 'nope' }, admin.cookie)).status, 400);
   await app.close();
 });
 

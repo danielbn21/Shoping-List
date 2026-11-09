@@ -1,6 +1,4 @@
-import { getSetting } from '../util.js';
-import { makeAccess } from '../access.js';
-import { makeChains, publicChain } from '../chains.js';
+import { publicChain } from './chains.js';
 
 const bad = (reply, error, code = 400) => reply.code(code).send({ error });
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -8,12 +6,9 @@ const CITY_KEY = /^[\p{L}\d\s'’".\-]{1,60}$/u;
 
 // Price comparison for one list. Everyone who can see the list can look (a Shopper at the checkout included);
 // choosing the cities, chains and branches is an Editor/Owner job and lives in Manage list.
-export default async function compareRoutes(app) {
-  const db = app.db;
-  const pre = { preHandler: app.auth() };
-  const { listAccess, canEdit } = makeAccess(db);
-  const chains = makeChains(db);
-  const dir = app.directory;
+// Receipt prices are read through the core's read API; this module only owns the chain links and the selections.
+export default function compareRoutes(ctx, { chains, dir }) {
+  const { db, core } = ctx;
 
   const selectionOf = (listId) => db.prepare('SELECT chain, branch_id, branch_name FROM list_compare_stores WHERE list_id = ? ORDER BY position, id').all(listId)
     .filter((r) => chains.usable(r.chain))
@@ -24,40 +19,37 @@ export default async function compareRoutes(app) {
   const citiesOf = (listId) => db.prepare('SELECT city_key FROM list_compare_cities WHERE list_id = ? ORDER BY rowid').all(listId)
     .map((r) => ({ key: r.city_key, name: dir.cityName(r.city_key) || `#${r.city_key}` }));
 
-  // Last price paid for an item at a household store linked to this chain (shekels only; private lists stay private).
-  const lastPaid = db.prepare(`SELECT p.unit_price, p.purchased_at
-    FROM purchase_events p
-    JOIN stores s ON s.id = p.store_id
-    LEFT JOIN trips t ON t.id = p.trip_id
-    LEFT JOIN lists l ON l.id = p.list_id
-    WHERE p.item_id = ? AND s.chain = ? AND s.household_id = ? AND p.unit_price IS NOT NULL
-      AND (t.currency IS NULL OR t.currency = 'ILS')
-      AND (p.list_id IS NULL OR l.visibility = 'household' OR p.list_id IN (SELECT list_id FROM list_members WHERE user_id = ?))
-    ORDER BY p.purchased_at DESC, p.id DESC LIMIT 1`);
+  // The household's stores with the chain each is linked to (the link is this module's data).
+  const storesOf = (householdId) => {
+    const link = new Map(db.prepare('SELECT store_id, chain FROM store_chain').all().map((r) => [r.store_id, r.chain]));
+    return core.householdStores(householdId).map((s) => ({ id: s.id, name: s.name, chain: link.get(s.id) ?? null }));
+  };
+  const storeIdsOfChain = (householdId, chain) => {
+    const ids = new Set(core.householdStores(householdId).map((s) => s.id));
+    return db.prepare('SELECT store_id FROM store_chain WHERE chain = ?').all(chain).map((r) => r.store_id).filter((id) => ids.has(id));
+  };
 
-  app.get('/api/lists/:id/compare', pre, async (req, reply) => {
-    const acc = listAccess(req.user, Number(req.params.id));
+  ctx.routes.get('/lists/:id/compare', async (req, reply) => {
+    const acc = core.listAccess(req.user, req.params.id);
     if (!acc) return bad(reply, 'not_found', 404);
-    const enabled = !!getSetting(db, 'compare_enabled');
-    const out = { enabled, canEdit: canEdit(acc), chains: chains.all().map(publicChain), selection: [], cities: [], results: [], openCount: 0, source: 'receipts' };
-    if (!enabled) return out;
+    const out = { canEdit: core.canEdit(acc), chains: chains.all().map(publicChain), stores: storesOf(acc.list.household_id), selection: [], cities: [], results: [], openCount: 0, source: 'receipts' };
     out.selection = selectionOf(acc.list.id);
     out.cities = citiesOf(acc.list.id);
 
-    const items = db.prepare(`SELECT e.item_id, e.quantity, i.name FROM list_entries e JOIN items i ON i.id = e.item_id
-      WHERE e.list_id = ? AND e.deleted = 0 AND e.state = 'open' ORDER BY e.position, e.id`).all(acc.list.id);
+    const items = core.listOpenEntries(acc.list.id);
     out.openCount = items.length;
 
     // One row per chain; the chosen branches are listed under it (live branch prices arrive in a later release).
     const order = [...new Set(out.selection.map((s) => s.chain))];
     const results = order.map((id) => {
       const c = chains.get(id);
+      const storeIds = storeIdsOfChain(acc.list.household_id, id);
       let total = 0, priced = 0, asOf = null;
       const missing = [];
       for (const it of items) {
-        const p = lastPaid.get(it.item_id, id, acc.list.household_id, req.user.id);
+        const p = core.lastPaid({ itemId: it.itemId, storeIds, userId: req.user.id });
         if (p) { total += p.unit_price * it.quantity; priced++; asOf = Math.max(asOf ?? 0, p.purchased_at); }
-        else missing.push({ itemId: it.item_id, name: it.name, quantity: it.quantity });
+        else missing.push({ itemId: it.itemId, name: it.name, quantity: it.quantity });
       }
       return {
         chain: id, nameEn: c.nameEn, nameHe: c.nameHe,
@@ -72,11 +64,10 @@ export default async function compareRoutes(app) {
   });
 
   // Replace the selection: [{chain, branchId?}] and, optionally, the cities the pickers were filtered by.
-  app.put('/api/lists/:id/compare/stores', pre, async (req, reply) => {
-    const acc = listAccess(req.user, Number(req.params.id));
+  ctx.routes.put('/lists/:id/stores', async (req, reply) => {
+    const acc = core.listAccess(req.user, req.params.id);
     if (!acc) return bad(reply, 'not_found', 404);
-    if (!canEdit(acc)) return bad(reply, 'forbidden', 403);
-    if (!getSetting(db, 'compare_enabled')) return bad(reply, 'compare_disabled', 403);
+    if (!core.canEdit(acc)) return bad(reply, 'forbidden', 403);
     const { selection: sel, cities } = req.body || {};
     if (!Array.isArray(sel) || sel.length > 120) return bad(reply, 'invalid_value');
     if (cities !== undefined && (!Array.isArray(cities) || cities.length > 40 || cities.some((c) => typeof c !== 'string' || !CITY_KEY.test(c)))) return bad(reply, 'invalid_value');
@@ -101,5 +92,16 @@ export default async function compareRoutes(app) {
       }
     })();
     return { selection: selectionOf(acc.list.id), cities: citiesOf(acc.list.id) };
+  });
+
+  // Link (or unlink, chain: null) one of the household's stores to a supermarket chain.
+  ctx.routes.put('/stores/:id/chain', async (req, reply) => {
+    const s = core.storeAccess(req.user, req.params.id);
+    if (!s) return bad(reply, 'not_found', 404);
+    const chain = (req.body || {}).chain || null;
+    if (chain !== null && (typeof chain !== 'string' || !chains.get(chain)?.supported)) return bad(reply, 'invalid_value');
+    if (chain) db.prepare('INSERT INTO store_chain(store_id, chain) VALUES (?,?) ON CONFLICT(store_id) DO UPDATE SET chain = excluded.chain').run(s.id, chain);
+    else db.prepare('DELETE FROM store_chain WHERE store_id = ?').run(s.id);
+    return { ok: true };
   });
 }

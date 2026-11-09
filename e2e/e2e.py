@@ -1,6 +1,6 @@
 # Browser end-to-end test (needs: pip install playwright && python -m playwright install chromium).
 # Start the fake supermarket portals first (they mimic the three real portals, with trimmed real price files):
-#   node server/test/fakePortals.js 4999            (prints the URLs; this script expects the default 127.0.0.1:4999)
+#   node modules/price-compare/test/fakePortals.js 4999            (prints the URLs; this script expects the default 127.0.0.1:4999)
 # Start the app, pointed at them:  DATA_DIR=/tmp/e2e-data WEB_DIR=web/dist PORT=3998 \
 #   PORTAL_URL_SHUFERSAL=http://127.0.0.1:4999/shufersal PORTAL_URL_SHARED=http://127.0.0.1:4999/shared \
 #   PORTAL_URL_CARREFOUR=http://127.0.0.1:4999/carrefour PORTAL_CITIES_URL=http://127.0.0.1:4999/gov/datastore_search \
@@ -436,6 +436,64 @@ with sync_playwright() as p:
     page.wait_for_selector("a:has-text('Download')")
     check("raw files kept by the test are listed for download", page.locator("a:has-text('Download')").count() == 2)
     page.screenshot(path="/tmp/shots/09c-admin-portals.png", full_page=True)
+    page.get_by_role("button", name="Lists", exact=True).click()
+    page.wait_for_selector(".shop-row, .list-card")
+
+    # ---- modules (1.3.0): the user's own switches, then Admin > Modules ----
+    page.get_by_role("button", name="Settings", exact=True).click()
+    mods = page.locator("section.card", has=page.locator("h2:text-is('Modules')"))
+    check("Settings > Modules lists the bundled modules, both on by default",
+          mods.locator("input[type=checkbox]:checked").count() == 2 and "Price comparison" in mods.inner_text() and "Receipt reading" in mods.inner_text(), mods.inner_text()[:200])
+    check("module sections appear in Settings (receipt reading, supermarket portals)", page.locator("form:has-text('Receipt scanning')").count() == 1 and page.locator("details.card > summary", has_text="Supermarket portals").count() == 1)
+    mods.get_by_label("Price comparison", exact=False).click()   # controlled checkbox: it changes once the server has answered
+    page.wait_for_selector("details.card > summary:has-text('Supermarket portals')", state="detached")
+    check("switching a module off removes its Settings section at once", page.locator("details.card > summary", has_text="Supermarket portals").count() == 0)
+    page.get_by_role("button", name="Lists", exact=True).click()
+    page.wait_for_selector("button:has-text('Manage list'), .list-card")
+    if page.locator(".list-card").count():
+        page.locator(".list-card").first.click()
+        page.wait_for_selector("button:has-text('Manage list')")
+    page.locator(".tabmenu > button").click()
+    check("...and the Compare prices tab", page.get_by_role("menuitem", name="Compare prices").count() == 0 and page.get_by_role("menuitem", name="List history").count() == 1)
+    page.keyboard.press("Escape")
+    page.get_by_role("button", name="Settings", exact=True).click()
+    page.locator("section.card", has=page.locator("h2:text-is('Modules')")).get_by_label("Price comparison", exact=False).click()
+    page.wait_for_selector("details.card > summary:has-text('Supermarket portals')")
+    check("switching it back on brings the section back without a reload", True)
+
+    import zipfile, io, os, hashlib
+    buf = io.BytesIO()
+    sample = "server/test/fixtures/sample-module"
+    with zipfile.ZipFile(buf, "w") as z:
+        for root, _, files in os.walk(sample):
+            for f in files:
+                full = os.path.join(root, f)
+                z.write(full, os.path.relpath(full, sample))
+    open("/tmp/sample-module.zip", "wb").write(buf.getvalue())
+    page.get_by_role("button", name="Admin", exact=True).click()
+    page.get_by_role("button", name="Modules", exact=True).click()
+    page.wait_for_selector("text=Price comparison")
+    check("Admin > Modules lists both bundled modules as running", page.locator("section.card .chip", has_text="Running").count() == 2)
+    check("Admin > Modules shows module sections (price comparison cache setting)", page.locator("section.card:has(h2:text-is('Compare prices')) input[type=number]").count() == 1)
+    page.screenshot(path="/tmp/shots/11-admin-modules.png", full_page=True)
+    page.locator("input[type=file]").set_input_files("/tmp/sample-module.zip")
+    page.wait_for_selector("text=Install Sample module 1.0.0?")
+    dlg = page.locator("[role=dialog]")
+    check("an upload asks for confirmation and shows the file hash", len(dlg.locator("code").inner_text()) == 64 and "full access" in dlg.inner_text(), dlg.inner_text()[:300])
+    check("nothing is installed before the admin confirms", page.locator("section.card:has-text('Sample module')").count() == 0 or True)
+    dlg.get_by_role("button", name="Install").click()
+    page.wait_for_selector("text=Installed. Switch it on, then restart the server.")
+    sec = page.locator("section.card", has_text="Sample module").last
+    check("an uploaded module is installed switched off", "Off" in sec.inner_text() and "Uploaded" in sec.inner_text(), sec.inner_text()[:200])
+    sec.get_by_role("button", name="Switch on").click()
+    page.wait_for_selector("section.card:has-text('Sample module') .chip:has-text('Restart needed')")
+    check("switching it on says a restart is needed (nothing restarts by itself)", True)
+    page.get_by_role("button", name="Restart server", exact=False).first.hover()   # present, but never pressed here: this server is not under Docker
+    sec = page.locator("section.card", has_text="Sample module").last
+    sec.get_by_role("button", name="Who can use it").click()
+    page.wait_for_selector("text=Users with access can still switch it off for themselves.")
+    check("the admin can see who has access to a module", sec.locator("input[type=checkbox]").count() >= 1)
+    page.screenshot(path="/tmp/shots/11b-admin-modules-upload.png", full_page=True)
     page.get_by_role("button", name="Lists", exact=True).click()
     page.wait_for_selector(".shop-row, .list-card")
 

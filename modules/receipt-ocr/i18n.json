@@ -1,0 +1,28 @@
+{
+ "en": {
+  "ocrAuto": "Automatic (cloud if I added a key)",
+  "ocrCloud": "Cloud (my API key)",
+  "ocrEngine": "Engine",
+  "ocrHelp": "Receipts are read on this server by default. To use a cloud service instead, add your own API key; the receipt photo is then sent to that provider.",
+  "ocrKey": "API key",
+  "ocrKeySaved": "A key is saved. Leave this blank to keep it.",
+  "ocrLocal": "Local only (this server)",
+  "ocrModel": "Model (optional, leave blank for the default)",
+  "ocrProvider": "Cloud provider",
+  "ocrRemoveKey": "Remove saved key",
+  "ocrTitle": "Receipt scanning"
+ },
+ "he": {
+  "ocrAuto": "אוטומטי (ענן אם הוספתי מפתח)",
+  "ocrCloud": "ענן (מפתח ה-API שלי)",
+  "ocrEngine": "מנוע",
+  "ocrHelp": "כברירת מחדל הקבלות נקראות בשרת הזה. כדי להשתמש בשירות ענן במקום זאת, הוסיפו מפתח API משלכם; תמונת הקבלה תישלח אז לספק.",
+  "ocrKey": "מפתח API",
+  "ocrKeySaved": "מפתח שמור. השאירו ריק כדי לשמור אותו.",
+  "ocrLocal": "מקומי בלבד (השרת הזה)",
+  "ocrModel": "מודל (אופציונלי, ריק לברירת המחדל)",
+  "ocrProvider": "ספק ענן",
+  "ocrRemoveKey": "הסרת המפתח השמור",
+  "ocrTitle": "סריקת קבלות"
+ }
+}

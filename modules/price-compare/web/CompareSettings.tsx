@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from './api';
-import { t, errText } from './i18n';
+import { api, t, errText } from './sdk';
 import { chainLabel } from './CompareTab';
-import type { ChainInfo, CompareData, Detail, PortalBranch, PortalCities, SelEntry } from './types';
+import type { Detail } from '../../../web/src/types';
+import type { ChainInfo, CompareData, PortalBranch, PortalCities, SelEntry } from './types';
 
 type Pick = { chain: string; branchId: string };
 const keyOf = (p: Pick) => `${p.chain}|${p.branchId}`;
@@ -17,7 +17,9 @@ export default function CompareSettings({ data, reload }: { data: Detail; reload
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('');
 
-  useEffect(() => { api<CompareData>(`/lists/${lid}/compare`).then(setC).catch((e) => setError(errText(e))); }, [lid]);
+  // The household's stores come with the comparison data; reload them when a store is added, renamed or removed in Manage list.
+  const storeStamp = data.stores.map((s) => `${s.id}:${s.name}`).join();
+  useEffect(() => { api<CompareData>(`/lists/${lid}/compare`).then(setC).catch((e) => setError(errText(e))); }, [lid, storeStamp]);
 
   // The directory loads lazily on the first visit; keep asking while it is loading.
   useEffect(() => {
@@ -67,7 +69,7 @@ export default function CompareSettings({ data, reload }: { data: Detail; reload
       cities: nextCities ? nextCities.map((k) => ({ key: k, name: pc?.cities.find((x) => x.key === k)?.name ?? k })) : c.cities,
     });
     try {
-      const r = await api<{ selection: SelEntry[]; cities: { key: string; name: string }[] }>(`/lists/${lid}/compare/stores`, {
+      const r = await api<{ selection: SelEntry[]; cities: { key: string; name: string }[] }>(`/lists/${lid}/stores`, {
         method: 'PUT', body: { selection: nextPicks, ...(nextCities ? { cities: nextCities } : {}) },
       });
       setC((cur) => (cur ? { ...cur, selection: r.selection, cities: r.cities } : cur));
@@ -82,7 +84,7 @@ export default function CompareSettings({ data, reload }: { data: Detail; reload
   };
   const linkStore = async (storeId: number, chain: string) => {
     setError('');
-    try { await api(`/stores/${storeId}`, { method: 'PATCH', body: { chain: chain || null } }); await reload(); } catch (e) { setError(errText(e)); }
+    try { await api(`/stores/${storeId}/chain`, { method: 'PUT', body: { chain: chain || null } }); setC(await api<CompareData>(`/lists/${lid}/compare`)); await reload(); } catch (e) { setError(errText(e)); }
   };
 
   const cityList = (pc?.cities ?? []).filter((x) => !filter.trim() || x.name.includes(filter.trim()));
@@ -193,10 +195,10 @@ export default function CompareSettings({ data, reload }: { data: Detail; reload
       })}
       <p className="muted">{t('compareBranchesSoon')}</p>
 
-      {data.stores.length > 0 && (
+      {(c?.stores.length ?? 0) > 0 && (
         <>
           <p className="muted">{t('compareLinkHelp')}</p>
-          {data.stores.map((s) => (
+          {c?.stores.map((s) => (
             <label className="row between" key={s.id}>
               <span className="grow" style={{ fontWeight: 600 }}>{s.name}</span>
               <select value={s.chain ?? ''} onChange={(e) => linkStore(s.id, e.target.value)} aria-label={`${t('storeChain')}: ${s.name}`} style={{ maxWidth: '50%' }}>

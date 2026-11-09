@@ -100,6 +100,7 @@ export default async function adminRoutes(app) {
     if (id === req.user.id) return bad(reply, 'cannot_delete_self', 409);
     if (target.role === 'admin' && !target.disabled && otherActiveAdmins(id) === 0) return bad(reply, 'last_admin', 409);
     db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    app.modules.events.emit('user.deleted', { userId: id });
     audit(db, req.user.id, 'admin.user_deleted', target.username);
     return { ok: true };
   });
@@ -118,13 +119,6 @@ export default async function adminRoutes(app) {
       const n = Number(b.session_days);
       if (!Number.isInteger(n) || n < 1 || n > 3650) return bad(reply, 'invalid_value');
       setSetting(db, 'session_days', n);
-    }
-    if (b.ocr_enabled !== undefined) setSetting(db, 'ocr_enabled', !!b.ocr_enabled);
-    if (b.compare_enabled !== undefined) setSetting(db, 'compare_enabled', !!b.compare_enabled);
-    if (b.branch_cache_days !== undefined) {
-      const n = Number(b.branch_cache_days);
-      if (!Number.isInteger(n) || n < 1 || n > 90) return bad(reply, 'invalid_value');
-      setSetting(db, 'branch_cache_days', n);
     }
     if (b.allow_user_households !== undefined) setSetting(db, 'allow_user_households', !!b.allow_user_households);
     if (b.min_password_length !== undefined) {

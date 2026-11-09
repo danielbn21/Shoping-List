@@ -1,6 +1,6 @@
 import {
   hashPassword, verifyPassword, DUMMY_HASH, hashToken, newToken, getSetting, audit,
-  createHousehold, createUser, userPayload, validUsername, validEmail, cleanName,
+  createHousehold, createUser, validUsername, validEmail, cleanName,
   generateInviteCode, normalizeCode,
 } from '../util.js';
 import { createSession, revokeSessions, COOKIE } from '../auth.js';
@@ -42,7 +42,7 @@ export default async function authRoutes(app) {
       return id;
     })();
     createSession(app, req, reply, uid);
-    return { user: userPayload(db, db.prepare('SELECT * FROM users WHERE id = ?').get(uid)) };
+    return { user: app.userPayload(db.prepare('SELECT * FROM users WHERE id = ?').get(uid)) };
   });
 
   // ---- login / logout ----
@@ -55,7 +55,7 @@ export default async function authRoutes(app) {
     if (u.disabled) return bad(reply, 'account_disabled', 403);
     createSession(app, req, reply, u.id);
     audit(db, u.id, 'auth.login');
-    return { user: userPayload(db, u) };
+    return { user: app.userPayload(u) };
   });
 
   app.post('/api/auth/logout', async (req, reply) => {
@@ -99,7 +99,7 @@ export default async function authRoutes(app) {
       return id;
     })();
     createSession(app, req, reply, uid);
-    return { user: userPayload(db, db.prepare('SELECT * FROM users WHERE id = ?').get(uid)) };
+    return { user: app.userPayload(db.prepare('SELECT * FROM users WHERE id = ?').get(uid)) };
   });
 
   // ---- password reset by email (only works when SMTP is configured) ----
@@ -148,11 +148,11 @@ export default async function authRoutes(app) {
     db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hash, req.user.id);
     revokeSessions(db, req.user.id, req.sessionId); // sign out other devices
     audit(db, req.user.id, 'auth.password_changed');
-    return { user: userPayload(db, db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id)) };
+    return { user: app.userPayload(db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id)) };
   });
 
   // ---- profile ----
-  app.get('/api/me', { preHandler: app.auth({ allowPending: true }) }, async (req) => ({ user: userPayload(db, req.user) }));
+  app.get('/api/me', { preHandler: app.auth({ allowPending: true }) }, async (req) => ({ user: app.userPayload(req.user) }));
 
   app.patch('/api/me', { preHandler: app.auth() }, async (req, reply) => {
     const b = req.body || {};
@@ -172,7 +172,7 @@ export default async function authRoutes(app) {
     }
     if (b.showAddedBy !== undefined) { sets.push('show_added_by = ?'); vals.push(b.showAddedBy ? 1 : 0); }
     if (sets.length) db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...vals, req.user.id);
-    return { user: userPayload(db, db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id)) };
+    return { user: app.userPayload(db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id)) };
   });
 
   // ---- devices (sessions) ----

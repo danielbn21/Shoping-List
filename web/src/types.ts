@@ -1,12 +1,14 @@
 import type { Lang } from './i18n';
 
 export type Household = { id: number; name: string; role: 'owner' | 'member' };
+export type MeModule = { id: string; name: string; kind: string; version: string; description: string; on: boolean; slots: string[]; web: string | null; css: string | null; i18n: string | null };
 export type Me = {
   id: number; username: string; email: string | null; name: string; role: 'admin' | 'user';
   language: Lang; theme: 'system' | 'light' | 'dark'; colorTheme: string; showAddedBy: boolean;
   mustChangePassword: boolean; households: Household[]; canCreateHousehold: boolean;
-  currency: string | null; ocrEnabled: boolean; compareEnabled: boolean;
-  ocr: { engine: 'auto' | 'local' | 'cloud'; provider: 'anthropic' | 'openai' | 'gemini'; model: string; hasKey: boolean };
+  currency: string | null;
+  modules: MeModule[];       // the modules this user may use (granted by the admin), each with the user's own on/off switch
+  capabilities: string[];    // what those modules provide right now, e.g. 'receipt-reader'
 };
 export type Cfg = {
   needsSetup: boolean;
@@ -27,7 +29,7 @@ export type Entry = {
   unit: string | null; note: string | null; state: 'open' | 'in_cart'; position: number;
   addedByName: string | null; checkedAt: number | null; checkedByName: string | null;
 };
-export type Store = { id: number; name: string; chain: string | null; categoryOrder: number[] };
+export type Store = { id: number; name: string; categoryOrder: number[] };
 export type Detail = {
   list: { id: number; name: string; color: string; visibility: string; householdId: number; role: 'owner' | 'contributor' | 'viewer' };
   entries: Entry[];
@@ -51,27 +53,3 @@ export type TripDetailData = {
   lines: TripLine[]; receipts: ReceiptInfo[]; stores: { id: number; name: string }[];
 };
 
-export type ChainInfo = { id: string; nameEn: string; nameHe: string; supported: boolean; enabled: boolean; custom: boolean };
-export type SelEntry = { chain: string; branchId: string; branchName: string | null; cityKey: string; cityName: string; address: string; banner: string };
-export type CompareResult = {
-  chain: string; nameEn: string; nameHe: string; branches: { storeId: string; name: string | null; cityName: string }[];
-  total: number | null; priced: number; of: number; missing: { itemId: number; name: string; quantity: number }[]; asOf: number | null; source: 'receipts';
-};
-export type CompareData = {
-  enabled: boolean; canEdit: boolean; chains: ChainInfo[]; selection: SelEntry[]; cities: { key: string; name: string }[];
-  results: CompareResult[]; openCount: number; source: 'receipts';
-};
-export type PortalCities = {
-  loading: boolean; progress: { done: number; total: number } | null; cities: { key: string; name: string; branches: number; chains: number }[];
-  chains: ChainInfo[]; stats: { chain: string; branches: number; fetchedAt: number | null; lastError: string | null }[];
-};
-export type PortalBranch = { chain: string; storeId: string; name: string; address: string; cityKey: string; cityName: string; banner: string; zip: string };
-
-export type AdminChain = ChainInfo & {
-  platform: string; user: string; chainId: string; branches: number; cities: number; zipFilled: number;
-  fetchedAt: number | null; storesFile: string | null; lastOkAt: number | null; lastError: string | null; lastErrorAt: number | null;
-};
-export type RefreshJob = { running: boolean; startedAt: number; finishedAt: number | null; done: number; total: number; current: string | null; results: { chain: string; ok: boolean; error?: string; branches?: number }[] } | null;
-export type PortalStep = { name: 'open' | 'stores' | 'pricefull_list' | 'pricefull_parse'; ok: boolean; ms: number; detail?: Record<string, any> | null; error?: string; code?: string | null };
-export type PortalReport = { chain: string; steps: PortalStep[]; files: { stores?: { name: string; size: number | null; time: string | null }[]; priceFull?: { name: string; size: number | null; time: string | null }[]; rawKeys?: string[] | null }; saved: string[] };
-export type PortalSample = { chain: string; file: string; size: number };
