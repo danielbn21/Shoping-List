@@ -46,6 +46,15 @@ const FILES = {
 const CITIES = [{ 'סמל_ישוב': 8600, 'שם_ישוב': 'רמת גן   ' }, { 'סמל_ישוב': 6100, 'שם_ישוב': 'בני ברק' }, { 'סמל_ישוב': 6400, 'שם_ישוב': 'הרצליה' }, { 'סמל_ישוב': 6600, 'שם_ישוב': 'חולון' },
   { 'סמל_ישוב': 4000, 'שם_ישוב': 'חיפה' }, { 'סמל_ישוב': 7400, 'שם_ישוב': 'נתניה' }, { 'סמל_ישוב': 9700, 'שם_ישוב': 'הוד השרון' }, { 'סמל_ישוב': 8300, 'שם_ישוב': 'ראשון לציון' }];
 
+// Tests: replace the PriceFull file a branch serves (chain is shufersal, carrefour, rami_levy or stop_market). Returns a function that restores it.
+export function replaceFull(chain, storeId, name, bytes) {
+  const slot = { shufersal: FILES.shufersal.full, carrefour: FILES.carrefour.full, rami_levy: FILES.shared.RamiLevi.full, stop_market: FILES.shared.Stop_Market.full }[chain];
+  const old = slot[storeId];
+  slot[storeId] = [name, bytes];
+  return () => { if (old) slot[storeId] = old; else delete slot[storeId]; };
+}
+export const gzipXml = gz;
+
 export async function startFakePortals({ port = 0 } = {}) {
   const state = { down: new Set(), hits: {}, cities: true, log: [] };
   const sessions = new Map(); // sid -> user

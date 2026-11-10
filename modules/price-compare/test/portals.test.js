@@ -238,9 +238,8 @@ test('list selection with cities and branches: validated, a branch keeps its cha
   const seen = (await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, shopper.cookie)).body;
   assert.equal(seen.canEdit, false);
   assert.equal(seen.selection.length, 6);
-  assert.deepEqual(seen.results.map((r) => r.chain).sort(), ['rami_levy', 'shufersal', 'stop_market']); // one row per chain...
-  const stop = seen.results.find((r) => r.chain === 'stop_market');
-  assert.deepEqual(stop.branches.map((b) => b.storeId), ['2', '3']); // ...with its chosen branches listed
+  // one row per chosen branch; a chain chosen without any branch has one row of its own
+  assert.deepEqual(seen.results.map((r) => `${r.chain}:${r.branchId}`).sort(), ['rami_levy:', 'shufersal:17', 'stop_market:2', 'stop_market:3']);
   // omitting `cities` keeps the saved cities
   await call('PUT', `/api/m/price-compare/lists/${lid}/stores`, { selection: [{ chain: 'rami_levy' }] }, admin.cookie);
   assert.deepEqual((await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie)).body.cities.map((c) => c.key), ['8600', '6400']);

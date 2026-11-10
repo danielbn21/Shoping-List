@@ -71,7 +71,7 @@ Rules enforced when a module is installed: only `node:` built-ins and relative i
 | Capability | Interface | Used by |
 | --- | --- | --- |
 | `receipt-reader` | `read({ file, mime, userId, engine }) → { engine, lines, total, … }` (never saves anything) | the receipt queue in `server/src/receipts.js` |
-| `price-source` | described by the module; live prices arrive in 1.4.0 | `price-compare` |
+| `price-source` | `chains()` and `priceAt(chain, storeId, code)`; provided by `price-compare` (it reads the portals itself) | `price-compare` |
 
 ## Browser side: `web/index.tsx`
 

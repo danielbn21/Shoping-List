@@ -24,6 +24,8 @@ export function makeCoreApi(app) {
     // Open (not yet ticked) entries of a list: [{ itemId, quantity, name }]
     listOpenEntries: (listId) => db.prepare(`SELECT e.item_id AS itemId, e.quantity, i.name FROM list_entries e JOIN items i ON i.id = e.item_id
       WHERE e.list_id = ? AND e.deleted = 0 AND e.state = 'open' ORDER BY e.position, e.id`).all(Number(listId)),
+    // An item of the household's item bank ({ id, name }), or null when it is not one of the household's.
+    itemInHousehold: (householdId, itemId) => db.prepare('SELECT id, name FROM items WHERE id = ? AND household_id = ? AND archived = 0').get(Number(itemId), Number(householdId)) ?? null,
     // The household's stores for a list: [{ id, name }]
     householdStores: (householdId) => db.prepare('SELECT id, name FROM stores WHERE household_id = ? ORDER BY id').all(Number(householdId)),
     // The store when the user belongs to its household, else null.

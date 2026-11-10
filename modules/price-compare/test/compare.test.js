@@ -83,10 +83,10 @@ test('comparison prices the open items from your own receipts, with coverage and
   assert.deepEqual(r.results.map((x) => x.chain), ['rami_levy', 'shufersal', 'carrefour']); // most items priced first, no data last
   const [ramiLevy, shufersal, carrefour] = r.results;
   assert.deepEqual([ramiLevy.priced, ramiLevy.of, ramiLevy.total], [3, 4, 5 * 2 + 13 + 9]);
-  assert.deepEqual(ramiLevy.missing.map((m) => m.name), ['Tahini']);
+  assert.deepEqual(ramiLevy.needsMatch.map((m) => m.name), ['Tahini']);
   assert.deepEqual([shufersal.priced, shufersal.total], [2, 6 * 2 + 12]);
-  assert.deepEqual(shufersal.missing.map((m) => m.name), ['Bread', 'Tahini']);
-  assert.deepEqual([carrefour.priced, carrefour.total, carrefour.missing.length], [0, null, 4]);
+  assert.deepEqual(shufersal.needsMatch.map((m) => m.name), ['Bread', 'Tahini']);
+  assert.deepEqual([carrefour.priced, carrefour.total, carrefour.needsMatch.length], [0, null, 4]);
   await app.close();
 });
 
@@ -105,7 +105,7 @@ test('only open items count, the newest price wins, other currencies and unlinke
   const r = (await call('GET', `/api/m/price-compare/lists/${lid}/compare`, undefined, admin.cookie)).body;
   assert.equal(r.openCount, 2);
   assert.deepEqual([r.results[0].priced, r.results[0].total], [1, 7]);
-  assert.deepEqual(r.results[0].missing.map((m) => m.name), ['Eggs']);
+  assert.deepEqual(r.results[0].needsMatch.map((m) => m.name), ['Eggs']);
 
   // a trip recorded in another currency is not mixed in
   const usd = await addStore('Costco', 'carrefour');

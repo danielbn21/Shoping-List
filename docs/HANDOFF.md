@@ -1,6 +1,6 @@
 # Shopping List PWA: Handoff
 
-*State: version 1.3.1 (1.0.0 was the first tagged release; earlier internal builds were numbered Stage 1 to 3.2.1), development paused. Written so a new developer, a fresh chat or Claude Code can continue without the earlier conversation. Keep this file current: update section 3 and section 5 at the end of every working session.*
+*State: version 1.4.0 (1.0.0 was the first tagged release; earlier internal builds were numbered Stage 1 to 3.2.1), development paused. Written so a new developer, a fresh chat or Claude Code can continue without the earlier conversation. Keep this file current: update section 3 and section 5 at the end of every working session.*
 
 ## 1. What this is
 
@@ -57,9 +57,20 @@ A **self-hosted, multi-user household shopping list PWA** for Android, iPhone, W
 - **Language:** one place only, Settings; no switch on the login screen; English until the signed-in user's language module is loaded (language modules load before the first screen, so no flash); no browser-language detection. **Hebrew is a language module** (decided: pull it out now). Hebrew UI work stays on hold; **Hebrew and RTL support for content stays** system-wide.
 - **Version line** in Settings: unchanged (owner: leave it).
 
+### Prices and matching, as built in 1.4.0 (owner's decisions of 8 and 9 Nov 2026 applied)
+- **What is read:** the newest `PriceFull` of each branch chosen on a list (never `Price`), through the portal clients of 1.2.x. One session per chain, branches one after another, one job at a time. A branch whose newest file is the one already held is not downloaded again.
+- **When:** lazily. Opening the Compare tab after the interval (admin setting, default **24 h**) starts a background read; choosing branches reads them at once; **Refresh prices** reads now, except a branch checked in the last 10 minutes (the portals are public and shared). A branch that failed is retried at most hourly. The tab polls every 2 s while a job runs.
+- **Caching rule:** merge, never replace. An item missing from a new file keeps its price and its old "seen" stamp; a price whose stamp is older than **60 days** is flagged old (never deleted). A file with under half the previous item count (when the previous had over 200) is refused as `incomplete_file`; other errors: `no_pricefull`, `empty_file`, portal errors. Prices of branches no list uses any more are dropped after a job.
+- **Matching:** `rank()` in `matching.js`: tokens without digits, units and joining words; a word matches its plural, feminine form, Hebrew prefix letter (ה ו ב כ ל מ ש) or start; the brand counts at 0.8; coverage below 0.5 (0.7 for one word) drops a candidate; extra words cost a little; **frozen, pickled, pet food and deposit products are not offered unless the query contains such a word**. The user's search box (`?q=`) overrides the item name. Confirmation lives in `product_map` per household, item and chain (`confirmed` or `none`); a barcode (8 to 14 digits, item type 1) confirmed at one chain is used at the others **automatically** (labelled "Same barcode") until the user chooses otherwise; weighed products store `amount_kg` (default 1).
+- **Results:** one row per chosen branch (a chain chosen without a branch has a receipts-only row); total = price x quantity (x amount for weighed products); coverage; lines with product, pack size, unit price (shown when pack sizes differ across branches by more than 3%), old flag; "Not matched yet" and "Not sold here" lists; receipt prices fill gaps and are labelled. Sorted by coverage, then total.
+- **Routes** (`/api/m/price-compare/…`): `GET lists/:id/compare`, `POST lists/:id/prices/refresh`, `GET lists/:id/prices/status`, `GET|PUT|DELETE lists/:id/items/:itemId/match` (PUT and DELETE need Editor or Owner), `PUT lists/:id/stores`, `PUT stores/:id/chain`, admin `GET|PUT admin/settings` (`branchCacheDays`, `priceRefreshHours`). Core events `item.deleted` and `household.deleted` clear confirmations.
+- **Measured here (synthetic 15,000-item file):** read, parse and merge about 0.25 s; a candidate query about 7 ms; about 4 MB of database per branch.
+- **Not verified:** live portals (the sandbox cannot reach them), the quality of matching on the owner's real item names, Shufersal and Carrefour live files (fixtures only).
+- **Out of scope still:** promotions and club prices, travel cost, geolocation, comparing a past trip.
+
 ## 3. Current status
 
-**Latest build:** 1.3.1 (`server/package.json` and `web/package.json` must always carry the same version; the app compares them and shows an "Update now" banner when a device still runs old files).
+**Latest build:** 1.4.0 (`server/package.json` and `web/package.json` must always carry the same version; the app compares them and shows an "Update now" banner when a device still runs old files).
 
 | Build | Contents |
 |---|---|
@@ -75,6 +86,7 @@ A **self-hosted, multi-user household shopping list PWA** for Android, iPhone, W
 | 1.2.1 | Cities, chains and branches stored per list; portals open to every signed-in user (rate limited for non-admins); store-number match fix (`storeOfName()`); more unit spellings; narrow-screen `TabMenu` |
 | 1.3.0 | **Modular core.** Module system (manifest, zip install after a confirmation showing name, version and SHA-256, loader, events, core read API, per-module SQLite databases, capabilities, slots, quarantine, rollback, uninstall, per-user access and switch, admin **Restart server** button). Receipt reading (`receipt-ocr`) and the portals plus price comparison (`price-compare`) moved out of the core into bundled modules; migration 7. Behaviour is unchanged; settings made in 1.2.1 are not carried over (the owner agreed the data may be wiped) |
 | 1.3.1 | **UI tweaks and language modules.** Manage list sections are all collapsible; their order is set in Settings > Manage list layout; order and open/closed state are stored per user on the server (migration 8, `users.ui_prefs`, `PUT /api/me/prefs`). Login screen language switch removed; English until the user's language loads; language chosen only in Settings. `Lang` is an open string; **Hebrew moved into the `lang-he` language module** (`kind: language`, data only, `strings.json` covers core and module keys); module string files are English only; missing keys fall back to English. `dir="auto"` on user content and text inputs so Hebrew content is RTL in the English UI |
+| 1.4.0 | **Prices and matching** (module `price-compare` 1.1.0; core only gained `core.itemInHousehold`). Module database step 2: `branch_prices` (merged per branch and item), `branch_price_state`, `product_map`. `server/prices.js` (PriceFull parser, merge, refresh job, lazy interval), `server/matching.js` (Hebrew/English normaliser, ranker, exclusions, pack sizes), `server/compare.js` (per-branch results, match routes). Web: new `CompareTab`, `MatchPanel`. Shufersal and Carrefour were handled from the real fixtures and the fake portals only (the owner did not send their live Portals output; the owner said to assume the same format) |
 
 **Repository layout**
 ```
@@ -96,7 +108,7 @@ update.sh  Dockerfile  docker-entrypoint.sh  docker-compose.yml  .env.example  R
 
 **Environment:** `PORT`, `DATA_DIR`, `WEB_DIR`, `OCR_LANGS`, `MODULES_DIR` (optional: where bundled modules are looked for; default `/app/modules` in the image) (container); `PORTAL_URL_*`/`PORTAL_CITIES_URL` are read by the price-compare module (tests); `HOST_PORT`, `TZ` (compose, via `.env`).
 
-**Verified:** 83 backend tests (66 carried over from 1.2.1 and adapted, 17 in `server/test/modules.test.js`: module system, language modules, preferences) (including the three portal protocols against a local fake, `server/test/fakePortals.js`, with trimmed real price files as fixtures); 107 real-browser checks (84 before, 12 for modules, 11 for layout, language and direction) (Chromium, phone viewport, timezone Asia/Jerusalem) including drag and drop, Hebrew RTL, CSV round trips and a photographed receipt read by real Tesseract, one-row history lines in English and Hebrew, deleting a line from its edit panel, the compare flow with the city, chain and branch pickers, and the admin Portals screen; a database upgrade from 1.0.0 (schema 4) to 1.2.0 (schema 6) keeps existing data; `update.sh` (26 checks against a real git remote and a fake docker: update, rollback, failed build, unhealthy start, dirty tree, tags, dry run).
+**Verified:** 98 backend tests (66 carried over from 1.2.1 and adapted, 17 in `server/test/modules.test.js`, 6 in `matching.test.js`, 9 in `prices.test.js`) (including the three portal protocols against a local fake, `server/test/fakePortals.js`, with trimmed real price files as fixtures); 113 real-browser checks (84 before, 12 for modules, 11 for layout, language and direction, 6 for prices and matching) (Chromium, phone viewport, timezone Asia/Jerusalem) including drag and drop, Hebrew RTL, CSV round trips and a photographed receipt read by real Tesseract, one-row history lines in English and Hebrew, deleting a line from its edit panel, the compare flow with the city, chain and branch pickers, and the admin Portals screen; a database upgrade from 1.0.0 (schema 4) to 1.2.0 (schema 6) keeps existing data; `update.sh` (26 checks against a real git remote and a fake docker: update, rollback, failed build, unhealthy start, dirty tree, tags, dry run).
 
 **Not verified:** **any live portal** (the development sandbox cannot reach the retailer portals; the owner ran the Portals test live for Stop Market and Rami Levy, see below), the real Stores files of Shufersal, Rami Levy and Carrefour (only Stop Market's real Stores file was seen), the real data.gov.il city list; the real Docker build and a real container start (no Docker in the development sandbox); touch drag, camera capture and HEIC photos on real phones; OCR on real, crumpled receipts (only generated ones); cloud OCR against the live providers (tested only with a simulated network); the SMTP reset email against a real mail server; `update.sh` against a real Docker.
 
@@ -168,7 +180,7 @@ In List history, a button such as "Add a trip I made without a list" for shoppin
 - **Per-list cities (already so since 1.2.0):** cities, chains and branches are stored **per list** (`list_compare_cities`, `list_compare_stores`), so a list for one city and another for a different city are independent. Editors set them in Manage list > Compare prices or in the Compare prices tab ("Change cities and branches"); Shoppers see the summary.
 - **Phones:** a `useNarrow()` media query (640 px) swaps the secondary tabs for `TabMenu`; wide screens keep the full tab row.
 
-**1.4.0 plan (prices and matching; was 1.3.0), built inside the `price-compare` module with its own database (no core migration), owner's decisions from section 2 unchanged:**
+**1.4.0 plan (prices and matching): DONE in 1.4.0, see the section above. The original plan, for reference:**
 1. Download and parse `PriceFull` for the selected branches only (Shufersal, Rami Levy, Stop Market and Carrefour formats are verified on real files: UTF-8 with BOM, 17 item fields, identical across chains; unit spellings in `portals/units.js`). Keep the latest file per branch; completeness check against the previous item count; freshness label from the file name.
 2. Lazy daily refresh plus a **Refresh prices** button, as a background job with progress (Cloudflare cuts requests near 100 s), shared across households. Tables (in the module's database): branch item prices, merged per branch and item (see the caching rule below), fetch log, `product_map` (household, item, chain, code, status). Item B (unplanned trips) moves to migration 8.
 3. **Matching without AI:** candidate ranker working on words (names are abbreviated and in different word order), one-time confirmation per household, item and chain; a confirmed barcode (`ItemType 1`) is auto-proposed at other chains; weighted items (`bIsWeighted=1`, price per kg) ask once how much "1" means; internal-code items (`ItemType 0`) are confirmed per chain; exclude deposits, frozen, pickled, pet food by default.
@@ -177,8 +189,8 @@ In List history, a button such as "Add a trip I made without a list" for shoppin
 
 ### 5.1b Next releases (agreed order, 8 Nov 2026)
 1. **1.3.1 UI tweaks: DONE (see section 3 and the decisions above).** Original scope: Manage list sections collapsible and **ordered in Settings** (per user, stored on the server; open/closed remembered; up/down arrows; module sections join the list); **language chosen only in Settings** (remove the login-screen switch; English UI first, always English before login; new strings need English text only, Hebrew falls back to English; Hebrew UI work on hold); keep Hebrew and **right-to-left for content** (lists, items, households, stores, categories): a `dir="auto"` pass is needed because direction is currently set once from the UI language and only one element uses `dir="auto"`; **language modules** (`Lang` becomes an open string, Hebrew moves into the first language module). The version line in Settings stays as it is.
-2. **1.4.0** prices and matching (above).
-3. **1.5.0** trips (item B).
+2. **1.4.0** prices and matching: DONE.
+3. **1.5.0** trips (item B): next.
 4. Then 5.2.
 
 ### 5.2 Planned earlier, not started
@@ -200,13 +212,13 @@ In List history, a button such as "Add a trip I made without a list" for shoppin
 6. A native Hebrew speaker should review `i18n.ts`; an accessibility pass.
 
 ### 5.4 Open questions
-1. The owner's live **Portals test output for Shufersal and Carrefour** (their real Stores files are still unseen); Stop Market and Rami Levy were run on 8 Nov 2026 and match what is in this file.
-2. Prices (1.4.0): fetch trigger lazy with a 24 h default (proposed); flag prices not seen for 60 days (proposed).
-3. The owner's go for **1.4.0** (prices and matching, inside the `price-compare` module).
-4. Real Docker build of the 1.3.x image (the Dockerfile's module stage was simulated by hand, not run in Docker).
+1. **Run 1.4.0 against the real portals** from the owner's server: Settings > Supermarket portals > Test for each chain (Shufersal and Carrefour especially), then choose a branch in the Compare tab and press Refresh prices. Report what the tab shows and any "Could not read the prices" message.
+2. How well the matching suggests products for the owner's real item names (the ranker is a heuristic; the user always confirms). Tuning needs real examples.
+3. Item B (1.5.0): attach an unplanned trip to a list; trip edit panel (change total, delete trip). Decisions are in 2.3 of the briefing.
+4. Real Docker build of the 1.4.x image (the Dockerfile's module stage was simulated by hand, not run in Docker).
 
 ## 6. How to resume
 
-1. Give the assistant this file and the repository (or `shoplist-1_3_1.zip`). `docs/MODULES.md` is the module guide.
-2. Check the build: `cd server && npm ci && npm test` (83 tests; run `npm ci` without `--silent` and check `node_modules` exists); `cd web && npm ci && npm run build && node ../scripts/build-modules.mjs`; `bash tests/test-update.sh`.
+1. Give the assistant this file and the repository (or `shoplist-1_4_0.zip`). `docs/MODULES.md` is the module guide.
+2. Check the build: `cd server && npm ci && npm test` (98 tests; run `npm ci` without `--silent` and check `node_modules` exists); `cd web && npm ci && npm run build && node ../scripts/build-modules.mjs`; `bash tests/test-update.sh`.
 3. Settle section 5.4, then build. Server-side module changes need no web build; changing a module's browser code means `node scripts/build-modules.mjs`. Each stage ends with backend tests, an updated `e2e/e2e.py`, an updated README and this file, a version bump, and a tag.

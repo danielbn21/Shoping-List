@@ -39,8 +39,9 @@ export function createPortals({ http, baseUrls = {} }) {
         return { name: all[0].name, files: all.slice(0, 5), bytes: (await get(all[0].url, { timeout: 120_000 })).buffer };
       },
       async priceFullList(storeId) { return newestFirst((await links(2, storeId)).filter((f) => f.name.includes('PriceFull'))); },
-      async priceFull(storeId) {
-        const f = (await this.priceFullList(storeId))[0];
+      // `known` is a listing the caller already has, so the portal is not asked twice.
+      async priceFull(storeId, known) {
+        const f = (known ?? await this.priceFullList(storeId))[0];
         if (!f) throw new PortalError('no_pricefull', `no PriceFull file published for store ${storeId} (closed today / Shabbat?)`);
         return { name: f.name, bytes: (await get(f.url, { timeout: 300_000 })).buffer };
       },
@@ -82,8 +83,9 @@ export function createPortals({ http, baseUrls = {} }) {
         return { name: f.name, files: files.slice(0, 5), bytes: await dl(f.name) };
       },
       async priceFullList(storeId) { const r = await list('PriceFull'); this.rawKeys = r.rawKeys; return forBranch(r.files.filter((f) => f.name.startsWith('PriceFull')), storeId); },
-      async priceFull(storeId) {
-        const f = (await this.priceFullList(storeId))[0];
+      // `known` is a listing the caller already has, so the portal is not asked twice.
+      async priceFull(storeId, known) {
+        const f = (known ?? await this.priceFullList(storeId))[0];
         if (!f) throw new PortalError('no_pricefull', `no PriceFull file published for store ${storeId} (closed today / Shabbat?)`);
         return { name: f.name, bytes: await dl(f.name) };
       },
@@ -111,8 +113,9 @@ export function createPortals({ http, baseUrls = {} }) {
         return { name: f[0].name, files: f.slice(0, 5), bytes: await dl(f[0].name) };
       },
       async priceFullList(storeId) { return forBranch((await index()).files.filter((x) => x.name.startsWith('PriceFull')), storeId); },
-      async priceFull(storeId) {
-        const f = (await this.priceFullList(storeId))[0];
+      // `known` is a listing the caller already has, so the portal is not asked twice.
+      async priceFull(storeId, known) {
+        const f = (known ?? await this.priceFullList(storeId))[0];
         if (!f) throw new PortalError('no_pricefull', `no PriceFull file published for store ${storeId} (closed today / Shabbat?)`);
         return { name: f.name, bytes: await dl(f.name) };
       },

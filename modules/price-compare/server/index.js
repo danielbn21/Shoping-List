@@ -2,6 +2,7 @@ import { makeChains } from './chains.js';
 import { createHttp } from './portals/http.js';
 import { createPortals } from './portals/clients.js';
 import { createDirectory } from './portals/directory.js';
+import { createPrices } from './prices.js';
 import compareRoutes from './compare.js';
 import portalRoutes from './portalRoutes.js';
 
@@ -66,6 +67,55 @@ CREATE TABLE portal_meta (
   value TEXT
 );
 `,
+  // 2 (1.1.0): branch prices, the confirmed product for each household item and chain
+  `
+CREATE TABLE branch_prices (          -- the latest known price of every product at every selected branch, merged from the daily files
+  chain TEXT NOT NULL,
+  store_id TEXT NOT NULL,
+  code TEXT NOT NULL,                 -- ItemCode as in the file
+  item_type INTEGER NOT NULL DEFAULT 1, -- 1 = barcode, 0 = the chain's own code
+  name TEXT NOT NULL,
+  name_norm TEXT NOT NULL,
+  manufacturer TEXT NOT NULL DEFAULT '',
+  price REAL NOT NULL,                -- per kilo when the product is weighed
+  unit_price REAL,
+  unit TEXT NOT NULL DEFAULT '',      -- what unit_price is per: kg, g, l, ml, item, m ('' when the file gives none)
+  unit_per REAL NOT NULL DEFAULT 0,   -- ... per this many of them (100 g, 1 l)
+  pack_amount REAL,                   -- pack size in g, ml, item or m
+  pack_unit TEXT,
+  weighted INTEGER NOT NULL DEFAULT 0,
+  price_updated TEXT,
+  seen_file TEXT NOT NULL,            -- stamp (yyyymmddhhmmss) of the newest file that listed the product
+  PRIMARY KEY (chain, store_id, code)
+);
+CREATE INDEX idx_branch_prices_name ON branch_prices(chain, store_id, name_norm);
+CREATE TABLE branch_price_state (
+  chain TEXT NOT NULL,
+  store_id TEXT NOT NULL,
+  file TEXT,
+  file_stamp TEXT,
+  items INTEGER NOT NULL DEFAULT 0,
+  checked_at INTEGER,                 -- last time the portal was asked (a newer file or not)
+  updated_at INTEGER,                 -- last time prices were merged in
+  error TEXT,
+  error_at INTEGER,
+  PRIMARY KEY (chain, store_id)
+);
+CREATE TABLE product_map (            -- the household's confirmation: this item is that product at this chain
+  household_id INTEGER NOT NULL,
+  item_id INTEGER NOT NULL,
+  chain TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('confirmed', 'none')),  -- none = this chain does not sell it
+  code TEXT,
+  item_type INTEGER,
+  name TEXT,
+  amount_kg REAL,                     -- weighed products: how much "1" on the list means, in kilos
+  confirmed_by INTEGER,
+  confirmed_at INTEGER NOT NULL,
+  PRIMARY KEY (household_id, item_id, chain)
+);
+CREATE INDEX idx_product_map_item ON product_map(household_id, item_id);
+`,
 ];
 
 export default function register(ctx) {
@@ -82,27 +132,38 @@ export default function register(ctx) {
     cacheDays: () => ctx.settings.get('branch_cache_days', 7),
   });
   const chains = makeChains(db);
+  const prices = createPrices({ db, portals, chains, delayMs: o.priceDelayMs ?? o.delayMs ?? 400, refreshHours: () => ctx.settings.get('price_refresh_hours', 24), log: ctx.log });
 
-  o.expose?.({ dir, chains, portals }); // tests only
-  compareRoutes(ctx, { chains, dir });
+  o.expose?.({ dir, chains, portals, prices }); // tests only
+  compareRoutes(ctx, { chains, dir, prices });
   portalRoutes(ctx, { chains, dir, portals });
 
   // Admin setting of this module (shown in the admin section of the web app).
-  ctx.routes.get('/admin/settings', { access: 'admin' }, async () => ({ branchCacheDays: ctx.settings.get('branch_cache_days', 7) }));
+  const adminSettings = () => ({ branchCacheDays: ctx.settings.get('branch_cache_days', 7), priceRefreshHours: ctx.settings.get('price_refresh_hours', 24) });
+  ctx.routes.get('/admin/settings', { access: 'admin' }, async () => adminSettings());
   ctx.routes.put('/admin/settings', { access: 'admin' }, async (req, reply) => {
-    const n = Number((req.body || {}).branchCacheDays);
-    if (!Number.isInteger(n) || n < 1 || n > 90) return reply.code(400).send({ error: 'invalid_value' });
-    ctx.settings.set('branch_cache_days', n);
-    ctx.audit(req.user.id, 'settings', `branch_cache_days=${n}`);
-    return { branchCacheDays: n };
+    const b = req.body || {};
+    if (b.branchCacheDays !== undefined) {
+      const n = Number(b.branchCacheDays);
+      if (!Number.isInteger(n) || n < 1 || n > 90) return reply.code(400).send({ error: 'invalid_value' });
+      ctx.settings.set('branch_cache_days', n); ctx.audit(req.user.id, 'settings', `branch_cache_days=${n}`);
+    }
+    // How often the portals are read again (a price itself never expires: it stays until a newer one arrives).
+    if (b.priceRefreshHours !== undefined) {
+      const n = Number(b.priceRefreshHours);
+      if (!Number.isInteger(n) || n < 1 || n > 168) return reply.code(400).send({ error: 'invalid_value' });
+      ctx.settings.set('price_refresh_hours', n); ctx.audit(req.user.id, 'settings', `price_refresh_hours=${n}`);
+    }
+    return adminSettings();
   });
 
   // The 'price-source' capability: for now it only describes what this module can read. Live branch prices arrive in 1.4.0.
-  ctx.provide('price-source', { id: 'price-compare', chains: () => chains.all().filter((c) => c.supported && c.enabled).map((c) => c.id) });
+  ctx.provide('price-source', { id: 'price-compare', chains: () => chains.all().filter((c) => c.supported && c.enabled).map((c) => c.id), priceAt: (chain, storeId, code) => prices.priceAt(chain, storeId, code) });
 
   // Cleanup when the core removes things this module keeps notes about.
   const dropLists = (ids) => { const a = db.prepare('DELETE FROM list_compare_stores WHERE list_id = ?'), b = db.prepare('DELETE FROM list_compare_cities WHERE list_id = ?'); for (const id of ids) { a.run(id); b.run(id); } };
   ctx.events.on('list.deleted', ({ listId }) => dropLists([listId]));
+  ctx.events.on('item.deleted', ({ itemId, householdId }) => db.prepare('DELETE FROM product_map WHERE household_id = ? AND item_id = ?').run(householdId, itemId));
   ctx.events.on('store.deleted', ({ storeId }) => db.prepare('DELETE FROM store_chain WHERE store_id = ?').run(storeId));
-  ctx.events.on('household.deleted', ({ listIds = [], storeIds = [] }) => { dropLists(listIds); const d = db.prepare('DELETE FROM store_chain WHERE store_id = ?'); for (const id of storeIds) d.run(id); });
+  ctx.events.on('household.deleted', ({ householdId, listIds = [], storeIds = [] }) => { dropLists(listIds); db.prepare('DELETE FROM product_map WHERE household_id = ?').run(householdId); const d = db.prepare('DELETE FROM store_chain WHERE store_id = ?'); for (const id of storeIds) d.run(id); });
 }
