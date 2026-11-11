@@ -138,12 +138,16 @@ export function createPrices({ db, portals, chains, now = Date.now, delayMs = 40
       .all(chain, ...storeIds.map(String), ...stems.map((s) => `%${s}%`), limit);
   }
   const stateOf = (chain, storeId) => getState.get(chain, String(storeId));
+  // The product with exactly this (normalised) name at a branch, when there is exactly one: the same product under another code.
+  const nameStmt = db.prepare('SELECT * FROM branch_prices WHERE chain = ? AND store_id = ? AND name_norm = ? LIMIT 2');
+  const rowByName = (chain, storeId, nameNorm) => { const r = nameStmt.all(chain, String(storeId), nameNorm); return r.length === 1 ? r[0] : null; };
 
-  return { refreshOne, start, status, due, stateOf, priceAt, candidateRows, prune, interval };
+  return { refreshOne, start, status, due, stateOf, priceAt, rowByName, candidateRows, prune, interval };
 }
 
 export const productOf = (r) => r && ({
   code: r.code, itemType: r.item_type, name: r.name, manufacturer: r.manufacturer, price: r.price, unitPrice: r.unit_price, unit: r.unit, unitPer: r.unit_per,
   weighted: !!r.weighted, pack: r.pack_amount ? { amount: r.pack_amount, unit: r.pack_unit } : null, seenFile: r.seen_file, priceUpdated: r.price_updated,
 });
-export const OLD_AFTER_MS = 60 * DAY;
+export const DEFAULT_OLD_AFTER_DAYS = 60;
+export const OLD_AFTER_MS = DEFAULT_OLD_AFTER_DAYS * DAY;

@@ -3,6 +3,7 @@ import { createHttp } from './portals/http.js';
 import { createPortals } from './portals/clients.js';
 import { createDirectory } from './portals/directory.js';
 import { createPrices } from './prices.js';
+import { createAutoMatcher } from './automatch.js';
 import compareRoutes from './compare.js';
 import portalRoutes from './portalRoutes.js';
 
@@ -116,6 +117,33 @@ CREATE TABLE product_map (            -- the household's confirmation: this item
 );
 CREATE INDEX idx_product_map_item ON product_map(household_id, item_id);
 `,
+  // 3 (1.2.0): product_map learns "auto" (a match carried from another chain), keeps what it needs to compare packs, and remembers where an auto match came from
+  `
+CREATE TABLE product_map_new (
+  household_id INTEGER NOT NULL,
+  item_id INTEGER NOT NULL,
+  chain TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('confirmed', 'none', 'auto')),   -- auto = carried over from a confirmation at another chain
+  code TEXT,
+  item_type INTEGER,
+  name TEXT,
+  manufacturer TEXT,
+  pack_amount REAL,
+  pack_unit TEXT,
+  weighted INTEGER,
+  amount_kg REAL,
+  source_chain TEXT,                  -- for auto: the chain whose confirmation it came from
+  source_code TEXT,
+  confirmed_by INTEGER,
+  confirmed_at INTEGER NOT NULL,
+  PRIMARY KEY (household_id, item_id, chain)
+);
+INSERT INTO product_map_new(household_id, item_id, chain, status, code, item_type, name, amount_kg, confirmed_by, confirmed_at)
+  SELECT household_id, item_id, chain, status, code, item_type, name, amount_kg, confirmed_by, confirmed_at FROM product_map;
+DROP TABLE product_map;
+ALTER TABLE product_map_new RENAME TO product_map;
+CREATE INDEX idx_product_map_item ON product_map(household_id, item_id);
+`,
 ];
 
 export default function register(ctx) {
@@ -135,11 +163,12 @@ export default function register(ctx) {
   const prices = createPrices({ db, portals, chains, delayMs: o.priceDelayMs ?? o.delayMs ?? 400, refreshHours: () => ctx.settings.get('price_refresh_hours', 24), log: ctx.log });
 
   o.expose?.({ dir, chains, portals, prices }); // tests only
-  compareRoutes(ctx, { chains, dir, prices });
+  const auto = createAutoMatcher({ db, prices, chains });
+  compareRoutes(ctx, { chains, dir, prices, auto, oldAfterDays: () => ctx.settings.get('old_after_days', 60) });
   portalRoutes(ctx, { chains, dir, portals });
 
   // Admin setting of this module (shown in the admin section of the web app).
-  const adminSettings = () => ({ branchCacheDays: ctx.settings.get('branch_cache_days', 7), priceRefreshHours: ctx.settings.get('price_refresh_hours', 24) });
+  const adminSettings = () => ({ branchCacheDays: ctx.settings.get('branch_cache_days', 7), priceRefreshHours: ctx.settings.get('price_refresh_hours', 24), oldAfterDays: ctx.settings.get('old_after_days', 60) });
   ctx.routes.get('/admin/settings', { access: 'admin' }, async () => adminSettings());
   ctx.routes.put('/admin/settings', { access: 'admin' }, async (req, reply) => {
     const b = req.body || {};
@@ -153,6 +182,12 @@ export default function register(ctx) {
       const n = Number(b.priceRefreshHours);
       if (!Number.isInteger(n) || n < 1 || n > 168) return reply.code(400).send({ error: 'invalid_value' });
       ctx.settings.set('price_refresh_hours', n); ctx.audit(req.user.id, 'settings', `price_refresh_hours=${n}`);
+    }
+    // After how many days without appearing in a price file a price is flagged old (it is never deleted).
+    if (b.oldAfterDays !== undefined) {
+      const n = Number(b.oldAfterDays);
+      if (!Number.isInteger(n) || n < 7 || n > 365) return reply.code(400).send({ error: 'invalid_value' });
+      ctx.settings.set('old_after_days', n); ctx.audit(req.user.id, 'settings', `old_after_days=${n}`);
     }
     return adminSettings();
   });

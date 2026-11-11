@@ -2,6 +2,7 @@ import { ApiError } from './api';
 
 const en = {
   appName: 'Shopping list',
+  modConfigure: 'Configure',
   // Manage list layout (1.3.1)
   layoutTitle: 'Manage list layout',
   layoutHelp: 'Choose the order of the sections in Manage list. Each section can be opened and closed there, and the app remembers which are open.',

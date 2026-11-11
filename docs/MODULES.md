@@ -82,7 +82,7 @@ export default function register(host: Host) {
 }
 ```
 
-Slots: `list.tab` (props `{ data, me, reload }`), `manage.section` (same props), `settings.section` (`{ me, onChange }`), `admin.section` (`{ me }`). `visible({ me, data })` can hide an entry; `order` sorts. The host provides React, `api`, `moduleApi`, `t`, `errText`, `timeAgo`, `formatMoney`, `effectiveCurrency`. A module never bundles React: `scripts/build-modules.mjs` points `react` at the app's copy (`globalThis.__SL_HOST__`). Calls to `host.moduleApi('/x')` go to `/api/m/<id>/x`.
+Slots: `list.tab` (props `{ data, me, reload }`), `manage.section` (same props), `settings.section` (`{ me, onChange }`), `admin.section` (`{ me }`). An `admin.section` is the module's **configuration panel**: Admin > Modules shows a **Configure** button on the module's card (only when the module registered one and is enabled) and opens the panel under the card. Put everything an admin configures in it (a module with several `admin.section` entries gets a heading for each). `visible({ me, data })` can hide an entry; `order` sorts. The host provides React, `api`, `moduleApi`, `t`, `errText`, `timeAgo`, `formatMoney`, `effectiveCurrency`. A module never bundles React: `scripts/build-modules.mjs` points `react` at the app's copy (`globalThis.__SL_HOST__`). Calls to `host.moduleApi('/x')` go to `/api/m/<id>/x`.
 
 ## Build, package, install
 

@@ -20,9 +20,3 @@ export function ModuleSettingsSections({ me, onChange }: { me: Me; onChange: () 
     return s.collapsible ? <Lazy key={key} title={s.title()}><s.component me={me} onChange={onChange} /></Lazy> : <s.component key={key} me={me} onChange={onChange} />;
   })}</>;
 }
-
-// Sections that modules add to the Admin > Modules screen.
-export function ModuleAdminSections({ me }: { me: Me }) {
-  const sections = useSlots('admin.section', { me });
-  return <>{sections.map((s) => <section className="card stack-sm" key={`${s.moduleId}:${s.id}`}><h2>{s.title()}</h2><s.component me={me} /></section>)}</>;
-}

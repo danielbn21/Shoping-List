@@ -125,6 +125,25 @@
   "compareMatchAmount": "How much is 1 on your list?",
   "compareMatchUse": "Use this product",
   "adminPriceRefresh": "How often to read the price files again (hours)",
-  "adminPriceRefreshHelp": "A price stays until a newer one arrives; this only sets how often the portals are asked."
+  "adminPriceRefreshHelp": "A price stays until a newer one arrives; this only sets how often the portals are asked.",
+  "compareNow": "Compare now",
+  "compareFetching": "Fetching prices… {done} of {total}",
+  "compareDoneOne": "Done. Updated the prices of 1 branch.",
+  "compareDoneMany": "Done. Updated the prices of {n} branches.",
+  "compareDoneSame": "Done. The prices were already up to date.",
+  "compareFailedSome": "Some branches could not be read ({n}). The details are on the branch.",
+  "compareUpToDate": "The prices are already up to date (checked {when}).",
+  "compareAlready": "Already fetching prices…",
+  "compareToMatchTitle": "Items to match",
+  "compareToMatchChain": "{chain}: {n} to match",
+  "compareToMatchHelp": "Pick the product once. It is used for every branch of that chain, and clear matches at other chains are filled in automatically.",
+  "compareToMatchWaiting": "Waiting for the prices of this chain…",
+  "compareBranchNeeds": "Items still to match: {n} (see “Items to match” above).",
+  "compareAutoFrom": "Matched automatically (from {chain})",
+  "compareSameName": "Same product, another code at this branch",
+  "compareMatchAuto": "Matched automatically from {chain}: {name}. Choose another product to change it.",
+  "configUpdates": "Price updates",
+  "adminOldAfter": "Flag a price as old after (days)",
+  "adminOldAfterHelp": "A price is never deleted. It is only marked when no price file has listed the product for this long."
  }
 }

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { buildApp } from '../../../server/src/app.js';
 import { startFakePortals, replaceFull, gzipXml } from './fakePortals.js';
 import { decodeXmlBytes } from '../server/portals/decode.js';
@@ -295,4 +296,129 @@ test('cleanup: forgetting an item or a household removes its confirmations', asy
   t.app.modules.events.emit('household.deleted', { householdId: t.hid, listIds: [t.lid], storeIds: [] });
   assert.equal(n(), 0);
   await t.close();
+});
+
+/* ---------- 1.2.0: matching once for every branch and chain ---------- */
+
+const gz = (storeId, items) => gzipXml(priceXml(storeId, items));
+const CHEESE = { code: '7290000001111', name: 'גבינה צהובה עמק 28% 500 גרם', brand: 'תנובה', qty: 500, unitQty: 'גרם', price: 30 };
+
+test('another branch of the same chain: same product by code, or by exact name when its code differs; one list of items to match per chain', async () => {
+  const t = await boot();
+  const r2 = replaceFull('stop_market', 2, 'PriceFull7290639000004-001-002-20261107-010011.gz', gz(2, [CHEESE, { code: '7290000009999', name: 'אורז בסמטי 1 ק"ג', price: 12, qty: 1, unitQty: 'קילוגרם' }]));
+  const r3 = replaceFull('stop_market', 3, 'PriceFull7290639000004-001-003-20261107-010011.gz', gz(3, [{ ...CHEESE, code: '7290000002222', price: 28 }]));   // the same name under another code
+  try {
+    await t.select(['stop_market', '2'], ['stop_market', '3']);
+    const cheese = await t.want('גבינה צהובה'), rice = await t.want('אורז');
+    let c = await t.compare();
+    assert.deepEqual(c.matchGroups.map((g) => [g.chain, g.items.map((i) => i.name).sort()]), [['stop_market', ['אורז', 'גבינה צהובה']]]); // once for the chain, not once per branch
+
+    await t.call('PUT', `${M}/lists/${t.lid}/items/${cheese}/match`, { chain: 'stop_market', code: CHEESE.code }, t.admin.cookie);
+    c = await t.compare();
+    const b2 = c.results.find((r) => r.branchId === '2'), b3 = c.results.find((r) => r.branchId === '3');
+    assert.deepEqual([b2.lines[0].via, b2.total], ['confirmed', 30]);
+    assert.deepEqual([b3.lines[0].via, b3.total, b3.lines[0].product.code], ['sameName', 28, '7290000002222']);   // priced at the other branch without asking again
+    assert.deepEqual(c.matchGroups[0].items.map((i) => i.name), ['אורז']);        // only the rice still needs the user
+    assert.deepEqual([b3.needsMatch.map((x) => x.name), b3.priced, b3.of], [['אורז'], 1, 2]);
+  } finally { r2(); r3(); await t.close(); }
+});
+
+test('a clear match is carried to the other chains by itself, labelled, and replaced by the user\'s own choice', async () => {
+  const t = await boot();
+  const base = (extra = {}) => [{ ...CHEESE, ...extra }];
+  const rs = replaceFull('shufersal', 17, 'PriceFull7290027600007-001-017-20261107-030000.gz', gz(17, [{ ...CHEESE, code: '1000000000011', name: 'גבינה צהובה עמק 28% 500 גרם תנובה', price: 32 }, { ...CHEESE, code: '1000000000012', name: 'גבינה לבנה 5% 250 גרם', price: 9, qty: 250 }]));
+  const rt = replaceFull('stop_market', 2, 'PriceFull7290639000004-001-002-20261107-010011.gz', gz(2, base()));
+  try {
+    await t.select(['stop_market', '2'], ['shufersal', '17']);
+    const id = await t.want('גבינה צהובה', 2);
+    await t.call('PUT', `${M}/lists/${t.lid}/items/${id}/match`, { chain: 'stop_market', code: CHEESE.code }, t.admin.cookie);
+    const c = await t.compare();
+    const sh = c.results.find((r) => r.chain === 'shufersal'), stop = c.results.find((r) => r.chain === 'stop_market');
+    assert.deepEqual([sh.lines[0].via, sh.lines[0].autoFrom, sh.lines[0].product.code, sh.total], ['auto', 'stop_market', '1000000000011', 64]);
+    assert.deepEqual([stop.lines[0].via, stop.total], ['confirmed', 60]);
+    assert.deepEqual(c.matchGroups, []);                                            // nothing left for the user
+    const row = t.mdb().prepare("SELECT status, source_chain, code FROM product_map WHERE chain = 'shufersal'").get();
+    assert.deepEqual([row.status, row.source_chain, row.code], ['auto', 'stop_market', '1000000000011']);
+    const m = (await t.call('GET', `${M}/lists/${t.lid}/items/${id}/match?chain=shufersal`, undefined, t.admin.cookie)).body;
+    assert.deepEqual([m.current.status, m.current.autoFrom], ['auto', 'stop_market']);
+
+    // the user chooses another product at Shufersal: that is the choice from now on
+    await t.call('PUT', `${M}/lists/${t.lid}/items/${id}/match`, { chain: 'shufersal', code: '1000000000012' }, t.admin.cookie);
+    let line = (await t.compare()).results.find((r) => r.chain === 'shufersal').lines[0];
+    assert.deepEqual([line.via, line.product.code], ['confirmed', '1000000000012']);
+    // ...and changing the source forgets what was carried over from it, but never the user's own choice
+    await t.call('PUT', `${M}/lists/${t.lid}/items/${id}/match`, { chain: 'stop_market', code: CHEESE.code }, t.admin.cookie);
+    assert.equal(t.mdb().prepare("SELECT status FROM product_map WHERE chain = 'shufersal'").get().status, 'confirmed');
+    // forgetting the user's choice at Shufersal lets the clear match come back
+    await t.call('DELETE', `${M}/lists/${t.lid}/items/${id}/match?chain=shufersal`, undefined, t.admin.cookie);
+    line = (await t.compare()).results.find((r) => r.chain === 'shufersal').lines[0];
+    assert.equal(line.via, 'auto');
+    // forgetting the source forgets what came from it
+    await t.call('DELETE', `${M}/lists/${t.lid}/items/${id}/match?chain=stop_market`, undefined, t.admin.cookie);
+    assert.equal(t.mdb().prepare("SELECT COUNT(*) c FROM product_map WHERE status = 'auto'").get().c, 0);
+    assert.deepEqual((await t.compare()).matchGroups.map((g) => g.chain).sort(), ['shufersal', 'stop_market']);
+  } finally { rs(); rt(); await t.close(); }
+});
+
+test('what must not be matched by itself: another size, another brand, extra words, a rival that fits as well, weighed against packed', async () => {
+  const cases = [
+    ['another pack size', [{ ...CHEESE, code: '2', name: 'גבינה צהובה עמק 28% 250 גרם תנובה', qty: 250, price: 20 }]],
+    ['another brand', [{ ...CHEESE, code: '3', name: 'גבינה צהובה עמק 28% 500 גרם', brand: 'טרה' }]],
+    ['extra words', [{ ...CHEESE, code: '4', name: 'גבינה צהובה עמק 28% דלת שומן 500 גרם' }]],
+    ['two products that fit equally', [{ ...CHEESE, code: '5' }, { ...CHEESE, code: '6', price: 31 }]],
+    ['weighed at the other chain', [{ ...CHEESE, code: '7', weighted: true, qty: 0 }]],
+  ];
+  for (const [why, items] of cases) {
+    const t = await boot();
+    const rs = replaceFull('shufersal', 17, 'PriceFull7290027600007-001-017-20261107-030000.gz', gz(17, items));
+    const rt = replaceFull('stop_market', 2, 'PriceFull7290639000004-001-002-20261107-010011.gz', gz(2, [CHEESE]));
+    try {
+      await t.select(['stop_market', '2'], ['shufersal', '17']);
+      const id = await t.want('גבינה צהובה');
+      await t.call('PUT', `${M}/lists/${t.lid}/items/${id}/match`, { chain: 'stop_market', code: CHEESE.code }, t.admin.cookie);
+      const c = await t.compare();
+      assert.equal(c.results.find((r) => r.chain === 'shufersal').priced, 0, why);
+      assert.deepEqual(c.matchGroups.map((g) => g.chain), ['shufersal'], why);
+      assert.equal(t.mdb().prepare("SELECT COUNT(*) c FROM product_map WHERE status = 'auto'").get().c, 0, why);
+    } finally { rs(); rt(); await t.close(); }
+  }
+});
+
+test('the age after which a price counts as old is a setting; the compare screen gets a summary of the last read', async () => {
+  const t = await boot();
+  const r = replaceFull('stop_market', 2, 'PriceFull7290639000004-001-002-20261107-010011.gz', gz(2, [CHEESE]));
+  try {
+    await t.select(['stop_market', '2']);
+    const id = await t.want('גבינה צהובה');
+    await t.call('PUT', `${M}/lists/${t.lid}/items/${id}/match`, { chain: 'stop_market', code: CHEESE.code }, t.admin.cookie);
+    let c = await t.compare();
+    assert.deepEqual([c.prices.oldAfterDays, c.results[0].lines[0].old], [60, false]);
+    assert.deepEqual(c.prices.lastJob && [c.prices.lastJob.updated, c.prices.lastJob.unchanged, c.prices.lastJob.failed], [1, 0, 0]);
+    const daysAgo = (d) => { const x = new Date(Date.now() - d * 86400000); return x.toISOString().replace(/[-:T]/g, '').slice(0, 14); };
+    t.mdb().prepare('UPDATE branch_prices SET seen_file = ?').run(daysAgo(40));
+    assert.equal((await t.compare()).results[0].lines[0].old, false);        // 40 days: not old yet at 60
+    assert.equal((await t.call('PUT', `${M}/admin/settings`, { oldAfterDays: 30 }, t.admin.cookie)).body.oldAfterDays, 30);
+    c = await t.compare();
+    assert.deepEqual([c.prices.oldAfterDays, c.results[0].lines[0].old], [30, true]);
+    for (const bad of [6, 366, 'x', 1.5]) assert.equal((await t.call('PUT', `${M}/admin/settings`, { oldAfterDays: bad }, t.admin.cookie)).status, 400);
+  } finally { r(); await t.close(); }
+});
+
+test('upgrading a 1.1.0 module database keeps the confirmations and adds what auto-matching needs', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-'));
+  let app = await buildApp({ dataDir, logger: false });
+  await app.close();
+  const Database = createRequire(new URL('../../../server/package.json', import.meta.url))('better-sqlite3');
+  const file = path.join(dataDir, 'modules', 'price-compare', 'data.db');
+  const d = new Database(file);
+  d.exec(`DROP TABLE product_map; CREATE TABLE product_map (household_id INTEGER NOT NULL, item_id INTEGER NOT NULL, chain TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('confirmed','none')),
+    code TEXT, item_type INTEGER, name TEXT, amount_kg REAL, confirmed_by INTEGER, confirmed_at INTEGER NOT NULL, PRIMARY KEY (household_id, item_id, chain));
+    INSERT INTO product_map VALUES (1, 5, 'shufersal', 'confirmed', '729000', 1, 'חלב', NULL, 1, 1000), (1, 6, 'rami_levy', 'none', NULL, NULL, NULL, NULL, 1, 2000);`);
+  d.pragma('user_version = 2'); d.close();
+  app = await buildApp({ dataDir, logger: false });
+  const m = app.modules.loaded.get('price-compare').db;
+  assert.equal(m.pragma('user_version', { simple: true }), 3);
+  assert.deepEqual(m.prepare('SELECT item_id, chain, status, code, source_chain FROM product_map ORDER BY item_id').all().map((r) => [r.item_id, r.chain, r.status, r.code, r.source_chain]), [[5, 'shufersal', 'confirmed', '729000', null], [6, 'rami_levy', 'none', null, null]]);
+  m.prepare("INSERT INTO product_map(household_id, item_id, chain, status, confirmed_at) VALUES (1, 7, 'carrefour', 'auto', 1)").run(); // the new status is allowed
+  await app.close();
 });

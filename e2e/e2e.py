@@ -343,16 +343,16 @@ with sync_playwright() as p:
     page.wait_for_selector(".trip-head")
     check("compare tab lists each chosen branch (and a chain chosen without a branch)", page.locator(".trip-head").count() == 3, str(page.locator(".trip-head").count()))
     check("compare tab shows the chosen branches under their chain", "\u05e9\u05d5\u05e4\u05e8\u05e1\u05dc \u05e9\u05dc\u05d9 \u05e8\u05de\u05ea \u05d2\u05df" in page.locator(".trip-head").all_inner_texts()[0] + page.locator(".trip-head").all_inner_texts()[1])
-    page.locator(".trip-head").first.click()
-    page.wait_for_selector("h3:has-text('Not matched yet')")
-    check("coverage and the items not matched yet are shown", "No price data yet" in page.locator(".trip-head").first.inner_text() and "Not matched yet" in page.locator("article.trip").first.inner_text())
-    check("prices were read for the chosen branch in the background", "Prices checked" in page.locator("main").inner_text() or "Reading prices" in page.locator("main").inner_text(), page.locator("main").inner_text()[:200])
+    page.wait_for_selector("section[aria-label='Items to match']")
+    group = page.locator("section[aria-label='Items to match']")
+    check("items that need matching are listed once per chain, in a panel that is open without asking", "Shufersal" in group.inner_text() and "to match" in group.inner_text() and group.locator("li").count() >= 3, group.inner_text()[:200])
+    check("the status line tells what the prices are doing (fetching, done or checked)", any(x in page.locator("main").inner_text() for x in ["Fetching prices", "Done.", "Prices checked"]), page.locator("main").inner_text()[:200])
 
     # ---- 1.4.0: match one item to a real product of the branch, then see its price ----
     check("a branch without a price file says so instead of failing", "no price file is published" in page.locator("article.trip").all_inner_texts()[0] + "".join(page.locator("article.trip").all_inner_texts()), "")
     card = page.locator("article.trip", has_text="\u05e9\u05dc\u05d9 \u05e8\u05de\u05ea \u05d2\u05df")      # Shufersal Sheli, Ramat Gan: the branch the test portal has a file for
-    card.locator(".trip-head").click()
-    card.get_by_role("button", name="Match").first.click()
+    check("a branch that cannot be fully compared opens by itself", card.locator(".trip-body").count() == 1)
+    group.locator("li", has_text="Tahini").get_by_role("button", name="Match").click()
     page.wait_for_selector("input[type=search][aria-label='Search']")
     page.locator("input[type=search][aria-label='Search']").fill("\u05e9\u05e2\u05d5\u05e2\u05d9\u05ea")      # black beans, a product in the Shufersal test file
     page.get_by_role("button", name="Search", exact=True).click()
@@ -361,13 +361,15 @@ with sync_playwright() as p:
     page.screenshot(path="/tmp/shots/09c-match.png", full_page=True)
     page.locator("button.similar").first.click()
     page.wait_for_selector("article.trip:has-text('\u05e9\u05dc\u05d9 \u05e8\u05de\u05ea \u05d2\u05df') .trip-head:has-text('1 of')")
+    cov = card.locator(".trip-head .error").first
+    check("an incomplete coverage line is red and bold", "1 of" in cov.inner_text() and cov.evaluate("e => parseInt(getComputedStyle(e).fontWeight) >= 700"), cov.inner_text()[:60])
     check("a confirmed product prices the item and the total appears", "\u2014" not in card.locator(".trip-total").inner_text() and "Prices from" in card.locator(".trip-head").inner_text(), card.locator(".trip-head").inner_text()[:120])
-    card.locator(".trip-head").click(); card.locator(".trip-head").click()    # open again after the reload
+    if card.locator(".trip-body").count() == 0: card.locator(".trip-head").click()
     page.wait_for_selector("article.trip:has-text('\u05e9\u05dc\u05d9 \u05e8\u05de\u05ea \u05d2\u05df') button:has-text('Change')")
     check("a priced line shows the product name and can be changed", card.get_by_role("button", name="Change").count() >= 1 and "\u05e9\u05e2\u05d5\u05e2\u05d9\u05ea" in card.inner_text())
-    page.get_by_role("button", name="Refresh prices").click()
-    page.wait_for_timeout(500)
-    check("Refresh prices works (a branch read minutes ago is left alone)", page.get_by_role("button", name="Refresh prices").count() == 1)
+    page.get_by_role("button", name="Compare now").click()
+    page.wait_for_function("/already up to date|could not be read|Done\\./.test(document.querySelector('main').innerText)", timeout=15000)
+    check("Compare now reports what it did (done, already up to date, or which branches could not be read)", page.get_by_role("button", name="Compare now").count() == 1 and "Refresh prices" not in page.locator("main").inner_text())
     page.screenshot(path="/tmp/shots/09b-compare.png", full_page=True)
     page.locator(".tabs button", has_text="Manage list").click()
     page.wait_for_selector("summary:text-is('Add items')")
@@ -443,14 +445,20 @@ with sync_playwright() as p:
     check("deleting the household returns to a single-household home", page.locator(".list-card").count() == 1 and page.locator(".hh").count() == 0,
           f"cards={page.locator('.list-card').count()} hh={page.locator('.hh').count()} main={page.locator('main').inner_text()[:200]!r}")
 
-    # ---- Settings > Supermarket portals (for everyone; admins get the extra controls) ----
-    page.get_by_role("button", name="Settings", exact=True).click()
-    page.locator("details.card > summary", has_text="Supermarket portals").click()
+    # ---- Admin > Modules > Price comparison > Configure (the supermarket portals and the update settings live there) ----
+    page.get_by_role("button", name="Admin", exact=True).click()
+    page.get_by_role("button", name="Modules", exact=True).click()
+    pcard = page.locator("section.card", has=page.locator("strong:text-is('Price comparison')"))
+    pcard.get_by_role("button", name="Configure").wait_for()
+    check("price comparison has a Configure button, receipt reading too has none", pcard.get_by_role("button", name="Configure").count() == 1 and page.locator("section.card", has=page.locator("strong:text-is('Receipt reading (OCR)')")).get_by_role("button", name="Configure").count() == 0)
+    pcard.get_by_role("button", name="Configure").click()
+    pcard.locator("input[type=number]").nth(2).wait_for()
+    check("Configure opens the update settings and the supermarket portals in one place", pcard.locator("input[type=number]").count() == 3 and "Supermarket portals" in pcard.inner_text(), pcard.inner_text()[:200])
     page.get_by_role("button", name="Reload all branch lists").click()
-    page.wait_for_function("[...document.querySelectorAll('section.card')].some(s => s.innerText.includes('Stop Market') && s.innerText.includes('Branches: 11'))", timeout=30000)
-    check("admin Portals lists every chain with its branch count", page.locator("section.card", has_text="Stop Market").first.inner_text().count("11") >= 1)
-    check("chains without a reader are marked not supported yet", page.locator("section.card", has_text="Hazi Hinam").first.inner_text().count("Not supported yet") == 1)
-    sm = page.locator("section.card", has_text="Stop Market").first
+    page.wait_for_function("[...document.querySelectorAll('section.card section.card')].some(s => s.innerText.includes('Stop Market') && s.innerText.includes('Branches: 11'))", timeout=30000)
+    check("admin Portals lists every chain with its branch count", page.locator("section.card section.card", has_text="Stop Market").first.inner_text().count("11") >= 1)
+    check("chains without a reader are marked not supported yet", page.locator("section.card section.card", has_text="Hazi Hinam").first.inner_text().count("Not supported yet") == 1)
+    sm = page.locator("section.card section.card", has_text="Stop Market").first
     sm.get_by_role("button", name="Test", exact=True).click()
     sm.get_by_label("Keep the raw files").check()
     sm.get_by_role("button", name="Run test").click()
@@ -469,10 +477,10 @@ with sync_playwright() as p:
     mods = page.locator("section.card", has=page.locator("h2:text-is('Modules')"))
     check("Settings > Modules lists the bundled modules, both on by default",
           mods.locator("input[type=checkbox]:checked").count() == 2 and "Price comparison" in mods.inner_text() and "Receipt reading" in mods.inner_text(), mods.inner_text()[:200])
-    check("module sections appear in Settings (receipt reading, supermarket portals)", page.locator("form:has-text('Receipt scanning')").count() == 1 and page.locator("details.card > summary", has_text="Supermarket portals").count() == 1)
+    check("the receipt reading section is in Settings; the supermarket portals are not (they moved to the module's Configure panel)", page.locator("form:has-text('Receipt scanning')").count() == 1 and page.locator("details.card > summary", has_text="Supermarket portals").count() == 0)
     mods.get_by_label("Price comparison", exact=False).click()   # controlled checkbox: it changes once the server has answered
-    page.wait_for_selector("details.card > summary:has-text('Supermarket portals')", state="detached")
-    check("switching a module off removes its Settings section at once", page.locator("details.card > summary", has_text="Supermarket portals").count() == 0)
+    page.wait_for_timeout(800)
+    check("switching a module off takes effect at once", mods.get_by_label("Price comparison", exact=False).is_checked() is False)
     page.get_by_role("button", name="Lists", exact=True).click()
     page.wait_for_selector("button:has-text('Manage list'), .list-card")
     if page.locator(".list-card").count():
@@ -483,8 +491,8 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     page.get_by_role("button", name="Settings", exact=True).click()
     page.locator("section.card", has=page.locator("h2:text-is('Modules')")).get_by_label("Price comparison", exact=False).click()
-    page.wait_for_selector("details.card > summary:has-text('Supermarket portals')")
-    check("switching it back on brings the section back without a reload", True)
+    page.wait_for_timeout(800)
+    check("switching it back on needs no reload", page.locator("section.card", has=page.locator("h2:text-is('Modules')")).get_by_label("Price comparison", exact=False).is_checked() is True)
 
     import zipfile, io, os, hashlib
     buf = io.BytesIO()
@@ -499,7 +507,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Modules", exact=True).click()
     page.wait_for_selector("text=Price comparison")
     check("Admin > Modules lists the bundled modules (two features and the Hebrew language) as running", page.locator("section.card .chip", has_text="Running").count() == 3)
-    check("Admin > Modules shows module sections (price comparison cache setting)", page.locator("section.card:has(h2:text-is('Compare prices')) input[type=number]").count() == 2)
+    check("Configure is only offered where a module has settings", page.get_by_role("button", name="Configure").count() == 1)
     page.screenshot(path="/tmp/shots/11-admin-modules.png", full_page=True)
     page.locator("input[type=file]").set_input_files("/tmp/sample-module.zip")
     page.wait_for_selector("text=Install Sample module 1.0.0?")

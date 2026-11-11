@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, apiUpload, ApiError } from './api';
 import { t, errText } from './i18n';
-import { ModuleAdminSections } from './ModuleSections';
+import { useSlots } from './slots';
 import type { Me } from './types';
 
 type Mod = {
@@ -25,6 +25,8 @@ export default function ModulesAdmin({ me }: { me: Me }) {
   const [restarting, setRestarting] = useState(false);
   const [accessFor, setAccessFor] = useState<string | null>(null);
   const [users, setUsers] = useState<AccessUser[]>([]);
+  const [configFor, setConfigFor] = useState<string | null>(null);
+  const adminSlots = useSlots('admin.section', { me }); // what each module offers to configure (registered by the module's browser code)
 
   const load = useCallback(async () => {
     try { setList(await api<Listing>('/admin/modules')); } catch (e) { setError(errText(e)); }
@@ -122,10 +124,18 @@ export default function ModulesAdmin({ me }: { me: Me }) {
             {m.enabled
               ? <button className="btn small" disabled={busy || m.dependents.length > 0} onClick={() => run(() => api(`/admin/modules/${m.id}/disable`, { method: 'POST', body: {} }))}>{t('modDisable')}</button>
               : <button className="btn small primary" disabled={busy || m.removePending} onClick={() => run(() => api(`/admin/modules/${m.id}/enable`, { method: 'POST', body: {} }))}>{t('modEnable')}</button>}
+            {adminSlots.some((s) => s.moduleId === m.id) && m.enabled && <button className="btn small" aria-expanded={configFor === m.id} onClick={() => setConfigFor(configFor === m.id ? null : m.id)}>{t('modConfigure')}</button>}
             {m.kind === 'feature' && <button className="btn small" aria-expanded={accessFor === m.id} onClick={() => openAccess(m.id)}>{t('modAccess')}</button>}
             {m.prevVersion && <button className="btn small" disabled={busy} onClick={() => run(() => api(`/admin/modules/${m.id}/rollback`, { method: 'POST', body: {} }))}>{t('modRollback', { v: m.prevVersion })}</button>}
             <button className="btn small danger" disabled={busy || m.dependents.length > 0 || m.removePending} onClick={() => uninstall(m)}>{t('modUninstall')}</button>
           </div>
+          {configFor === m.id && (
+            <div className="stack config-panel" style={{ borderTop: '1px solid var(--border, #d6dccf)', paddingTop: 12 }}>
+              {adminSlots.filter((s) => s.moduleId === m.id).map((s, _i, all) => (
+                <section className="stack-sm" key={s.id}>{all.length > 1 && <h3 style={{ margin: 0 }}>{s.title()}</h3>}<s.component me={me} /></section>
+              ))}
+            </div>
+          )}
           {accessFor === m.id && (
             <div className="stack-sm">
               <p className="muted" style={{ margin: 0 }}>{t('modAccessHelp')}</p>
@@ -148,7 +158,6 @@ export default function ModulesAdmin({ me }: { me: Me }) {
           ))}
         </section>
       )}
-      <ModuleAdminSections me={me} />
     </div>
   );
 }

@@ -5,7 +5,7 @@ export type Product = {
   weighted: boolean; pack: { amount: number; unit: string } | null;
 };
 export type Line = {
-  itemId: number; name: string; quantity: number; via: 'confirmed' | 'barcode' | 'receipt'; product: Product | null; amountKg: number | null;
+  itemId: number; name: string; quantity: number; via: 'confirmed' | 'auto' | 'sameName' | 'barcode' | 'receipt'; autoFrom?: string; product: Product | null; amountKg: number | null;
   lineTotal: number; old: boolean; sizeDiffers?: boolean; paidAt?: number; unitPrice?: number;
 };
 export type Missing = { itemId: number; name: string; quantity: number };
@@ -15,15 +15,19 @@ export type CompareResult = {
   lines: Line[]; needsMatch: Missing[]; notSold: (Missing & { reason: 'marked' | 'notAtBranch' })[];
   asOf: number | null; checkedAt: number | null; error: string | null; hasData: boolean;
 };
-export type PricesInfo = { running: boolean; done: number; total: number; current: { chain: string; storeId: string } | null; startedNow: boolean; refreshHours: number; oldAfterDays: number };
+export type PricesInfo = {
+  running: boolean; done: number; total: number; current: { chain: string; storeId: string } | null; startedNow: boolean; refreshHours: number; oldAfterDays: number;
+  lastJob: { finishedAt: number | null; updated: number; unchanged: number; failed: number } | null;
+};
+export type MatchGroup = { chain: string; nameEn: string; nameHe: string; items: Missing[] };
 export type CompareData = {
   canEdit: boolean; chains: ChainInfo[]; stores: { id: number; name: string; chain: string | null }[]; selection: SelEntry[]; cities: { key: string; name: string }[];
-  results: CompareResult[]; openCount: number; prices: PricesInfo;
+  results: CompareResult[]; matchGroups: MatchGroup[]; openCount: number; prices: PricesInfo;
 };
 export type Candidate = Product & { score: number; barcodeMatch: boolean };
 export type MatchInfo = {
   item: { id: number; name: string }; chain: string; query: string; noData: boolean; branches: number;
-  current: { status: 'confirmed' | 'none'; code: string | null; name: string | null; amountKg: number | null } | null;
+  current: { status: 'confirmed' | 'none' | 'auto'; code: string | null; name: string | null; amountKg: number | null; autoFrom: string | null } | null;
   viaBarcode: { code: string; name: string; from: string } | null; candidates: Candidate[];
 };
 export type PortalCities = {

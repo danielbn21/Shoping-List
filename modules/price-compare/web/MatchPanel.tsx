@@ -28,7 +28,7 @@ export function Parts({ parts }: { parts: (string | null | undefined)[] }) {
 
 // Which product does this chain sell for one of the household's items? Candidates come from the branches' price files; the choice is
 // confirmed once and remembered for the household, so every list and every later comparison uses it.
-export default function MatchPanel({ listId, chain, item, canEdit, onDone }: { listId: number; chain: string; item: { id: number; name: string }; canEdit: boolean; onDone: () => void }) {
+export default function MatchPanel({ listId, chain, item, canEdit, onDone, chainName }: { listId: number; chain: string; item: { id: number; name: string }; canEdit: boolean; onDone: () => void; chainName?: (id: string) => string }) {
   const [info, setInfo] = useState<MatchInfo | null>(null);
   const [q, setQ] = useState('');
   const [error, setError] = useState('');
@@ -66,6 +66,7 @@ export default function MatchPanel({ listId, chain, item, canEdit, onDone }: { l
       <p style={{ margin: 0 }}><strong>{t('compareMatchFor')}</strong><bdi dir="auto"> {item.name}</bdi></p>
       {error && <p className="error" role="alert">{error}</p>}
       {info.current?.status === 'confirmed' && <p className="muted" style={{ margin: 0 }}>{t('compareMatchChosen', { name: info.current.name ?? '' })}</p>}
+      {info.current?.status === 'auto' && <p className="muted" style={{ margin: 0 }}>{t('compareMatchAuto', { chain: chainName?.(info.current.autoFrom ?? '') ?? '', name: info.current.name ?? '' })}</p>}
       {info.current?.status === 'none' && <p className="muted" style={{ margin: 0 }}>{t('compareNotSoldMarked')}</p>}
       {info.noData && <p className="muted">{t('compareMatchNoData')}</p>}
       {!info.noData && (

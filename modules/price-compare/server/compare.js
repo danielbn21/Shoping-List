@@ -1,6 +1,6 @@
 import { publicChain } from './chains.js';
-import { rank, searchStems, isBarcode, packsDiffer } from './matching.js';
-import { productOf, stampToMs, OLD_AFTER_MS } from './prices.js';
+import { rank, searchStems, isBarcode, packsDiffer, norm } from './matching.js';
+import { productOf, stampToMs } from './prices.js';
 
 const bad = (reply, error, code = 400) => reply.code(code).send({ error });
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -9,9 +9,10 @@ const CITY_KEY = /^[\p{L}\d\s'’".\-]{1,60}$/u;
 // Price comparison for one list. Everyone who can see the list can look (a Shopper at the checkout included); choosing cities, chains and
 // branches and matching products to items is an Editor/Owner job. Prices come from the branches' daily files (see prices.js) and are matched
 // to the household's items by a confirmation that is remembered per household, item and chain; receipt prices stay as a labelled fallback.
-export default function compareRoutes(ctx, { chains, dir, prices }) {
+export default function compareRoutes(ctx, { chains, dir, prices, auto, oldAfterDays }) {
   const { db, core } = ctx;
   const now = () => Date.now();
+  const DAY = 86_400_000;
 
   const selectionOf = (listId) => db.prepare('SELECT chain, branch_id, branch_name FROM list_compare_stores WHERE list_id = ? ORDER BY position, id').all(listId)
     .filter((r) => chains.usable(r.chain))
@@ -39,9 +40,25 @@ export default function compareRoutes(ctx, { chains, dir, prices }) {
     const byKey = new Map(), barcode = new Map();
     for (const r of rows) {
       byKey.set(`${r.item_id}|${r.chain}`, r);
-      if (r.status === 'confirmed' && isBarcode(r.code, r.item_type) && !barcode.has(r.item_id)) barcode.set(r.item_id, { code: r.code, chain: r.chain, name: r.name });
+      if (r.status === 'confirmed' && isBarcode(r.code, r.item_type) && !barcode.has(r.item_id)) barcode.set(r.item_id, { code: r.code, chain: r.chain, name: r.name });   // only the user's own choices spread by barcode
     }
     return { byKey, barcode };
+  }
+
+  // The product an item stands for at a branch, and how it was found: the household's confirmed or carried-over choice (by code, or by exact
+  // name when the branch uses another code), or a barcode confirmed at another chain.
+  function resolve({ it, chain, branchId, maps }) {
+    const m = maps.byKey.get(`${it.itemId}|${chain}`);
+    if (m?.status === 'none') return { missing: 'marked' };
+    if (!branchId) return { missing: 'needsMatch' };
+    if (m?.code) {
+      let row = prices.priceAt(chain, branchId, m.code), via = m.status === 'auto' ? 'auto' : 'confirmed';
+      if (!row && m.name) { row = prices.rowByName(chain, branchId, norm(m.name)); via = 'sameName'; }
+      return row ? { row, via, m } : { missing: 'notAtBranch' };
+    }
+    const bc = maps.barcode.get(it.itemId);
+    if (bc && bc.chain !== chain) { const row = prices.priceAt(chain, branchId, bc.code); if (row) return { row, via: 'barcode' }; }
+    return { missing: 'needsMatch' };
   }
 
   // The prices of one chosen branch for the list's open items.
@@ -49,24 +66,19 @@ export default function compareRoutes(ctx, { chains, dir, prices }) {
     const chain = chains.get(sel.chain);
     const st = sel.branchId ? prices.stateOf(sel.chain, sel.branchId) : null;
     const receiptStores = storeIdsOfChain(householdId, sel.chain);
+    const oldMs = oldAfterDays() * DAY;
     const lines = [], needsMatch = [], notSold = [];
     let total = 0, receiptCount = 0, oldCount = 0;
     for (const it of items) {
-      const m = maps.byKey.get(`${it.itemId}|${sel.chain}`);
-      const bc = maps.barcode.get(it.itemId);
-      let line = null, missing = 'needsMatch';
-      if (m?.status === 'none') missing = 'marked';
-      else if (sel.branchId) {
-        const code = m?.code ?? (bc && bc.chain !== sel.chain ? bc.code : null);
-        const row = code ? prices.priceAt(sel.chain, sel.branchId, code) : null;
-        if (row) {
-          const product = productOf(row);
-          const amountKg = product.weighted ? (m?.amount_kg ?? 1) : null;
-          const lineTotal = round2(product.price * it.quantity * (amountKg ?? 1));
-          const seen = stampToMs(row.seen_file);
-          const old = !!seen && now() - seen > OLD_AFTER_MS;
-          line = { itemId: it.itemId, name: it.name, quantity: it.quantity, via: m ? 'confirmed' : 'barcode', product, amountKg, lineTotal, old };
-        } else if (m) missing = 'notAtBranch';
+      const r = resolve({ it, chain: sel.chain, branchId: sel.branchId, maps });
+      let line = null, missing = r.missing;
+      if (r.row) {
+        const product = productOf(r.row);
+        const amountKg = product.weighted ? (r.m?.amount_kg ?? 1) : null;
+        const lineTotal = round2(product.price * it.quantity * (amountKg ?? 1));
+        const seen = stampToMs(r.row.seen_file);
+        const old = !!seen && now() - seen > oldMs;
+        line = { itemId: it.itemId, name: it.name, quantity: it.quantity, via: r.via, autoFrom: r.via === 'auto' ? r.m.source_chain : undefined, product, amountKg, lineTotal, old };
       }
       if (!line && missing !== 'marked' && receiptStores.length) {
         const p = core.lastPaid({ itemId: it.itemId, storeIds: receiptStores, userId });
@@ -91,6 +103,10 @@ export default function compareRoutes(ctx, { chains, dir, prices }) {
     const maps = mappingsOf(acc.list.household_id);
     // Lazy: the first look after the refresh interval starts reading the selected branches' files in the background.
     const started = prices.start(branchesOf(selection));
+    // One confirmation is enough: clear matches are carried over to the other chains (and the other branches use the same product by code or name).
+    const byChain = new Map();
+    for (const s of selection) if (s.branchId && prices.stateOf(s.chain, s.branchId)?.file_stamp) { if (!byChain.has(s.chain)) byChain.set(s.chain, []); byChain.get(s.chain).push(s.branchId); }
+    auto.run({ householdId: acc.list.household_id, items, byChain, maps });
 
     // A chain chosen without a branch has no shelf prices: it is priced from receipts only (and says so in the screen).
     const withBranch = new Set(selection.filter((s) => s.branchId).map((s) => s.chain));
@@ -102,11 +118,25 @@ export default function compareRoutes(ctx, { chains, dir, prices }) {
     // Best coverage first, then cheapest: a low total from a branch that prices only a few items is not a bargain.
     results.sort((a, b) => (b.priced - a.priced) || ((a.total ?? Infinity) - (b.total ?? Infinity)));
 
+    // Items to match, once per chain: what no chosen branch of the chain can price and that has no choice yet (all its branches share it).
+    const matchGroups = [];
+    for (const [chainId] of byChain) {
+      const rows = results.filter((r) => r.chain === chainId && r.hasData);
+      const ids = rows[0]?.needsMatch.map((m) => m.itemId).filter((id) => rows.every((r) => r.needsMatch.some((m) => m.itemId === id))) ?? [];
+      if (!ids.length) continue;
+      const ch = chains.get(chainId);
+      matchGroups.push({ chain: chainId, nameEn: ch.nameEn, nameHe: ch.nameHe, items: rows[0].needsMatch.filter((m) => ids.includes(m.itemId)) });
+    }
     const st = prices.status();
+    const ok = st?.results?.filter((x) => x.ok && !x.skipped).length ?? 0, same = st?.results?.filter((x) => x.ok && x.skipped).length ?? 0, failed = st?.results?.filter((x) => !x.ok).length ?? 0;
     return {
       canEdit: core.canEdit(acc), chains: chains.all().map(publicChain), stores: storesOf(acc.list.household_id), selection, cities: citiesOf(acc.list.id),
-      results, openCount: items.length,
-      prices: { running: !!st?.running, done: st?.done ?? 0, total: st?.total ?? 0, current: st?.current ?? null, startedNow: !!started.started, refreshHours: prices.interval() / 3_600_000, oldAfterDays: OLD_AFTER_MS / 86_400_000 },
+      results, matchGroups, openCount: items.length,
+      prices: {
+        running: !!st?.running, done: st?.done ?? 0, total: st?.total ?? 0, current: st?.current ?? null, startedNow: !!started.started,
+        refreshHours: prices.interval() / 3_600_000, oldAfterDays: oldAfterDays(),
+        lastJob: st && !st.running ? { finishedAt: st.finishedAt, updated: ok, unchanged: same, failed } : null,
+      },
     };
   });
 
@@ -171,7 +201,7 @@ export default function compareRoutes(ctx, { chains, dir, prices }) {
 
   /* ---------- matching: which product at this chain is this item? ---------- */
 
-  const mappingShape = (m) => !m ? null : ({ status: m.status, code: m.code, name: m.name, amountKg: m.amount_kg, confirmedAt: m.confirmed_at });
+  const mappingShape = (m) => !m ? null : ({ status: m.status, code: m.code, name: m.name, amountKg: m.amount_kg, confirmedAt: m.confirmed_at, autoFrom: m.status === 'auto' ? m.source_chain : null });
   const chainBranches = (acc, chain) => selectionOf(acc.list.id).filter((s) => s.chain === chain && s.branchId).map((s) => s.branchId);
 
   // Candidates for one item at one chain, from the list's selected branches of that chain. `q` lets the user search with other words.
@@ -210,8 +240,10 @@ export default function compareRoutes(ctx, { chains, dir, prices }) {
     if (!item || typeof b.chain !== 'string' || !chains.usable(b.chain)) return bad(reply, 'not_found', 404);
     if (b.none === true) {
       db.prepare(`INSERT INTO product_map(household_id, item_id, chain, status, code, item_type, name, amount_kg, confirmed_by, confirmed_at) VALUES (?,?,?,'none',NULL,NULL,NULL,NULL,?,?)
-        ON CONFLICT(household_id, item_id, chain) DO UPDATE SET status = 'none', code = NULL, item_type = NULL, name = NULL, amount_kg = NULL, confirmed_by = excluded.confirmed_by, confirmed_at = excluded.confirmed_at`)
+        ON CONFLICT(household_id, item_id, chain) DO UPDATE SET status = 'none', code = NULL, item_type = NULL, name = NULL, manufacturer = NULL, pack_amount = NULL, pack_unit = NULL, weighted = NULL, amount_kg = NULL,
+          source_chain = NULL, source_code = NULL, confirmed_by = excluded.confirmed_by, confirmed_at = excluded.confirmed_at`)
         .run(acc.list.household_id, item.id, b.chain, req.user.id, now());
+      auto.forgetDerived(acc.list.household_id, item.id, b.chain);
     } else {
       if (typeof b.code !== 'string' || !b.code || b.code.length > 40) return bad(reply, 'invalid_value');
       const row = chainBranches(acc, b.chain).map((id) => prices.priceAt(b.chain, id, b.code)).find(Boolean);
@@ -221,9 +253,12 @@ export default function compareRoutes(ctx, { chains, dir, prices }) {
         amountKg = b.amountKg === undefined || b.amountKg === null ? 1 : Number(b.amountKg);
         if (!(amountKg >= 0.01 && amountKg <= 50)) return bad(reply, 'invalid_value');
       }
-      db.prepare(`INSERT INTO product_map(household_id, item_id, chain, status, code, item_type, name, amount_kg, confirmed_by, confirmed_at) VALUES (?,?,?,'confirmed',?,?,?,?,?,?)
-        ON CONFLICT(household_id, item_id, chain) DO UPDATE SET status = 'confirmed', code = excluded.code, item_type = excluded.item_type, name = excluded.name, amount_kg = excluded.amount_kg, confirmed_by = excluded.confirmed_by, confirmed_at = excluded.confirmed_at`)
-        .run(acc.list.household_id, item.id, b.chain, row.code, row.item_type, row.name, amountKg, req.user.id, now());
+      db.prepare(`INSERT INTO product_map(household_id, item_id, chain, status, code, item_type, name, manufacturer, pack_amount, pack_unit, weighted, amount_kg, source_chain, source_code, confirmed_by, confirmed_at)
+        VALUES (?,?,?,'confirmed',?,?,?,?,?,?,?,?,NULL,NULL,?,?)
+        ON CONFLICT(household_id, item_id, chain) DO UPDATE SET status = 'confirmed', code = excluded.code, item_type = excluded.item_type, name = excluded.name, manufacturer = excluded.manufacturer,
+          pack_amount = excluded.pack_amount, pack_unit = excluded.pack_unit, weighted = excluded.weighted, amount_kg = excluded.amount_kg, source_chain = NULL, source_code = NULL, confirmed_by = excluded.confirmed_by, confirmed_at = excluded.confirmed_at`)
+        .run(acc.list.household_id, item.id, b.chain, row.code, row.item_type, row.name, row.manufacturer || '', row.pack_amount, row.pack_unit, row.weighted, amountKg, req.user.id, now());
+      auto.forgetDerived(acc.list.household_id, item.id, b.chain);      // what was carried over from the old choice is worked out again
     }
     return { mapping: mappingShape(db.prepare('SELECT * FROM product_map WHERE household_id = ? AND item_id = ? AND chain = ?').get(acc.list.household_id, item.id, b.chain)) };
   });
@@ -237,6 +272,7 @@ export default function compareRoutes(ctx, { chains, dir, prices }) {
     const item = core.itemInHousehold(acc.list.household_id, req.params.itemId);
     if (!item || !chain) return bad(reply, 'not_found', 404);
     db.prepare('DELETE FROM product_map WHERE household_id = ? AND item_id = ? AND chain = ?').run(acc.list.household_id, item.id, chain);
+    auto.forgetDerived(acc.list.household_id, item.id, chain);
     return { ok: true };
   });
 }

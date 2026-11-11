@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api, t, errText } from './sdk';
 
-type Settings = { branchCacheDays: number; priceRefreshHours: number };
+type Settings = { branchCacheDays: number; priceRefreshHours: number; oldAfterDays: number };
 
-// Admin > Modules > Price comparison: how long a branch list is trusted before it is read again, and how often the price files are read.
+// Price updates: how long a branch list is trusted before it is read again, how often the price files are read, and when a price counts as old.
 export default function AdminSettings() {
   const [s, setS] = useState<Settings | null>(null);
   const [msg, setMsg] = useState('');
@@ -21,6 +21,9 @@ export default function AdminSettings() {
       <label className="field"><span>{t('adminPriceRefresh')}</span>
         <input type="number" min={1} max={168} value={s.priceRefreshHours} onChange={(e) => setS({ ...s, priceRefreshHours: Number(e.target.value) })} />
         <span className="muted" style={{ fontWeight: 400 }}>{t('adminPriceRefreshHelp')}</span></label>
+      <label className="field"><span>{t('adminOldAfter')}</span>
+        <input type="number" min={7} max={365} value={s.oldAfterDays} onChange={(e) => setS({ ...s, oldAfterDays: Number(e.target.value) })} />
+        <span className="muted" style={{ fontWeight: 400 }}>{t('adminOldAfterHelp')}</span></label>
       <div className="row">
         <button className="btn primary" onClick={save}>{t('save')}</button>
         {msg && <span className="ok" role="status">{msg}</span>}
