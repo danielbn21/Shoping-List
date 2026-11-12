@@ -44,6 +44,8 @@ export function createAutoMatcher({ db, prices, chains, now = Date.now }) {
         if (!branchIds.length || maps.byKey.has(`${it.itemId}|${chainId}`)) continue;
         const srcs = sources.filter((m) => m.chain !== chainId);
         if (!srcs.length) continue;
+        const bc = maps.barcode.get(it.itemId);                                   // the same barcode already prices it here: nothing to derive
+        if (bc && bc.chain !== chainId && branchIds.some((b) => prices.priceAt(chainId, b, bc.code))) continue;
         const stamp = `${branchIds.map((b) => prices.stateOf(chainId, b)?.updated_at ?? 0).join(',')}|${srcs.map((m) => `${m.chain}:${m.code}:${m.confirmed_at}`).join(',')}`;
         const key = `${householdId}|${it.itemId}|${chainId}`;
         if (tried.get(key) === stamp) continue;

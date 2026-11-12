@@ -436,3 +436,62 @@ test('preferences: Manage list order and open sections follow the user, merged a
   assert.equal((await t.call('PUT', '/api/me/prefs', { manageOpen: { x: true } })).status, 401);
   await t.app.close();
 });
+
+/* ---------- item catalog capability (1.4.2) ---------- */
+
+const catalogZip = () => Buffer.from(zipSync({
+  'manifest.json': strToU8(JSON.stringify({ id: 'cat-test', name: 'Catalog test', version: '1.0.0', requires: { core: '>=1.4.2 <2.0.0' }, provides: ['item-catalog'], server: 'server/index.js' })),
+  'server/index.js': strToU8(`export const migrations = ['CREATE TABLE added (item_id INTEGER, ref TEXT);'];
+export default function register(ctx) {
+  ctx.provide('item-catalog', {
+    async search({ q, listId, householdId, limit }) {
+      if (q === 'boom') throw new Error('search failed');
+      return [{ name: 'Milk 1 l', note: 'Brand · 1 l', categoryId: ctx.core.similarItem(householdId, 'Milk 1 l')?.categoryId ?? null, price: 6.9, priceMax: 7.5, currency: 'ILS', chains: [{ nameEn: 'A', nameHe: 'א' }], ref: { chain: 'a', code: '1' }, extra: 'dropped' },
+              { name: '', price: 1 }, { name: 'Bad ref', ref: { big: 'x'.repeat(400) } }];
+    },
+    async afterAdd({ itemId, ref, listId }) { if (ref.chain === 'fail') throw new Error('nope'); ctx.db.prepare('INSERT INTO added(item_id, ref) VALUES (?, ?)').run(itemId, JSON.stringify(ref)); },
+  });
+}`),
+}));
+
+test('item catalog: suggestions come from the module while typing, only for those who can add; the chosen product is passed on when the item is added', async () => {
+  const t = await boot();
+  const lid = (await t.call('POST', '/api/lists', { householdId: t.hid, name: 'Groceries' }, t.admin.cookie)).body.id;
+  const get = (q, cookie = t.admin.cookie) => t.call('GET', `/api/lists/${lid}/catalog?q=${encodeURIComponent(q)}`, undefined, cookie);
+  assert.deepEqual((await get('milk')).body, { available: false, suggestions: [] });           // no module: the form works as before
+
+  await t.upload(catalogZip());
+  await t.call('POST', '/api/admin/modules/cat-test/enable', {}, t.admin.cookie);
+  const t2 = await t.restart();
+  const get2 = (q, cookie = t2.admin.cookie) => t2.call('GET', `/api/lists/${lid}/catalog?q=${encodeURIComponent(q)}`, undefined, cookie);
+  const cat = (await t2.call('POST', `/api/households/${t2.hid}/categories`, { nameEn: 'Dairy' }, t2.admin.cookie)).body.id;
+  await t2.call('POST', `/api/lists/${lid}/entries`, { name: 'Milk', categoryId: cat }, t2.admin.cookie);
+
+  const r = await get2('milk');
+  assert.equal(r.body.available, true);
+  assert.deepEqual(r.body.suggestions, [{ name: 'Milk 1 l', note: 'Brand · 1 l', categoryId: cat, price: 6.9, priceMax: 7.5, currency: 'ILS', perKg: false, chains: [{ nameEn: 'A', nameHe: 'א' }], ref: { chain: 'a', code: '1' } },
+    { name: 'Bad ref', note: null, categoryId: null, price: null, priceMax: null, currency: null, perKg: false, chains: [], ref: null }]); // a nameless one is dropped, an oversized ref is not passed on
+  assert.deepEqual((await get2('m')).body, { available: true, suggestions: [] });               // too short to search
+  assert.deepEqual((await get2('boom')).body, { available: true, suggestions: [] });            // a failing module never breaks typing
+  assert.equal((await get2('milk', null)).status, 401);
+  const viewer = await t2.mkUser('dana');
+  await t2.call('PUT', `/api/lists/${lid}/members/${viewer.id}`, { role: 'viewer' }, t2.admin.cookie);
+  assert.equal((await get2('milk', viewer.cookie)).status, 403);                                 // Shoppers cannot add
+  assert.equal((await t2.call('GET', '/api/lists/99999/catalog?q=milk', undefined, t2.admin.cookie)).status, 404);
+
+  const added = () => t2.app.modules.loaded.get('cat-test').db.prepare('SELECT item_id, ref FROM added').all();
+  const post = (body) => t2.call('POST', `/api/lists/${lid}/entries`, { name: 'Milk 1 l', ...body }, t2.admin.cookie);
+  const a = await post({ catalogRef: { chain: 'a', code: '1' } });
+  assert.equal(a.status, 200);
+  assert.deepEqual(added(), [{ item_id: a.body.itemId, ref: '{"chain":"a","code":"1"}' }]);
+  const merged = await post({ catalogRef: { chain: 'a', code: '2' } });                            // the same item again: quantity merges, the choice is still passed on
+  assert.deepEqual([merged.body.merged, added().length], [true, 2]);
+  assert.equal((await post({ catalogRef: { chain: 'fail', code: '3' } })).status, 200);            // afterAdd failing does not fail the add
+  assert.equal((await post({ catalogRef: { big: 'x'.repeat(400) } })).status, 200);                // an oversized ref is ignored
+  assert.equal((await post({ catalogRef: 'nonsense' })).status, 200);
+  assert.equal(added().length, 2);
+
+  await t2.call('PUT', '/api/modules/cat-test/me', { on: false }, t2.admin.cookie);              // the user switches the module off: no suggestions
+  assert.equal((await get2('milk')).body.available, false);
+  await t2.app.close();
+});

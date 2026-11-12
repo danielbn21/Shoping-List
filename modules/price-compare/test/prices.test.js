@@ -422,3 +422,61 @@ test('upgrading a 1.1.0 module database keeps the confirmations and adds what au
   m.prepare("INSERT INTO product_map(household_id, item_id, chain, status, confirmed_at) VALUES (1, 7, 'carrefour', 'auto', 1)").run(); // the new status is allowed
   await app.close();
 });
+
+/* ---------- 1.3.0: Add items autocomplete from the chosen branches ---------- */
+
+test('catalog search: products of the chosen branches, ranked, one row per barcode, price range and chains, category from a similar item', async () => {
+  const t = await boot();
+  const shared = { ...CHEESE, code: '7290000001111', name: 'גבינה צהובה עמק 28% 500 גרם' };
+  const rs = replaceFull('shufersal', 17, 'PriceFull7290027600007-001-017-20261107-030000.gz', gz(17, [{ ...shared, price: 32 }, { ...shared, code: '7290000003333', name: 'גבינה לבנה 5% 250 גרם', qty: 250, price: 9 }, { ...shared, code: '7290000004444', name: 'גבינה צהובה קפואה 400 גרם', qty: 400, price: 25 }]));
+  const rt = replaceFull('stop_market', 2, 'PriceFull7290639000004-001-002-20261107-010011.gz', gz(2, [{ ...shared, price: 30 }, { code: '7290000005555', name: 'גבינת קוטג 250 גרם', price: 7, qty: 250, brand: 'תנובה' }]));
+  try {
+    const get = (q, cookie = t.admin.cookie) => t.call('GET', `/api/lists/${t.lid}/catalog?q=${encodeURIComponent(q)}`, undefined, cookie).then((r) => r.body);
+    assert.deepEqual(await get('גבינה'), { available: true, suggestions: [] });             // nothing chosen yet: the form works as before
+    await t.select(['stop_market', '2'], ['shufersal', '17']);
+    const dairy = (await t.call('POST', `/api/households/${t.hid}/categories`, { nameEn: 'Dairy' }, t.admin.cookie)).body.id;
+    await t.call('POST', `/api/lists/${t.lid}/entries`, { name: 'גבינה', categoryId: dairy }, t.admin.cookie);
+
+    const r = (await get('גבינה צהובה')).suggestions;
+    assert.equal(r[0].name, 'גבינה צהובה עמק 28% 500 גרם');
+    assert.deepEqual([r[0].price, r[0].priceMax, r[0].currency, r[0].perKg, r[0].note, r[0].categoryId], [30, 32, 'ILS', false, 'תנובה · 500 g', dairy]);
+    assert.deepEqual(r[0].chains.map((c) => c.nameEn).sort(), ['Shufersal', 'Stop Market']);   // the same barcode at two chains is one suggestion
+    assert.equal(r.filter((x) => x.name.includes('עמק')).length, 1);
+    assert.ok(!r.some((x) => x.name.includes('קפואה')));                                        // frozen only when asked for
+    assert.ok((await get('גבינה צהובה קפואה')).suggestions.some((x) => x.name.includes('קפואה')));
+    assert.deepEqual([r[0].ref.code, ['shufersal', 'stop_market'].includes(r[0].ref.chain)], ['7290000001111', true]);
+    assert.deepEqual((await get('xyzzy')).suggestions, []);
+    const cottage = (await get('קוטג')).suggestions[0];
+    assert.deepEqual([cottage.name, cottage.chains.length, cottage.priceMax, cottage.categoryId], ['גבינת קוטג 250 גרם', 1, null, dairy]);   // "גבינה" is in "גבינת"? only through the household's item: see below
+  } finally { rs(); rt(); await t.close(); }
+});
+
+test('adding a catalog product records it as the match, so the Compare tab prices the item at once and carries it to the other chain', async () => {
+  const t = await boot();
+  const shared = { ...CHEESE, code: '7290000001111', name: 'גבינה צהובה עמק 28% 500 גרם' };
+  const rs = replaceFull('shufersal', 17, 'PriceFull7290027600007-001-017-20261107-030000.gz', gz(17, [{ ...shared, price: 32 }]));
+  const rt = replaceFull('stop_market', 2, 'PriceFull7290639000004-001-002-20261107-010011.gz', gz(2, [{ ...shared, price: 30 }]));
+  try {
+    await t.select(['stop_market', '2'], ['shufersal', '17']);
+    const sug = (await t.call('GET', `/api/lists/${t.lid}/catalog?q=${encodeURIComponent('גבינה צהובה')}`, undefined, t.admin.cookie)).body.suggestions[0];
+    const add = await t.call('POST', `/api/lists/${t.lid}/entries`, { name: sug.name, quantity: 2, note: sug.note, catalogRef: sug.ref }, t.admin.cookie);
+    assert.equal(add.status, 200);
+    const row = t.mdb().prepare('SELECT status, chain, code, confirmed_by FROM product_map WHERE item_id = ?').get(add.body.itemId);
+    assert.deepEqual([row.status, row.chain, row.code], ['confirmed', sug.ref.chain, '7290000001111']);
+    const c = await t.compare();
+    assert.deepEqual(c.matchGroups, []);                                              // nothing left to match
+    const by = (chain) => c.results.find((r) => r.chain === chain);
+    assert.deepEqual([by('stop_market').total, by('shufersal').total], [60, 64]);       // 2 x 30 and 2 x 32
+    assert.deepEqual([by(sug.ref.chain).lines[0].via, by(sug.ref.chain === 'shufersal' ? 'stop_market' : 'shufersal').lines[0].via], ['confirmed', 'barcode']);
+
+    // a choice the user made themselves is never replaced, and a ref that is not in the branch data is ignored
+    const other = await t.want('משהו אחר');
+    await t.call('PUT', `${M}/lists/${t.lid}/items/${other}/match`, { chain: 'stop_market', code: '7290000001111' }, t.admin.cookie);
+    await t.call('POST', `/api/lists/${t.lid}/entries`, { name: 'משהו אחר', catalogRef: { chain: 'stop_market', code: 'does-not-exist' } }, t.admin.cookie);
+    assert.equal(t.mdb().prepare("SELECT code FROM product_map WHERE item_id = ? AND chain = 'stop_market'").get(other).code, '7290000001111');
+    for (const bad of [{ chain: 5, code: 'x' }, { chain: 'stop_market' }, { chain: 'nope', code: '1' }]) {
+      const id = (await t.call('POST', `/api/lists/${t.lid}/entries`, { name: `פריט ${JSON.stringify(bad).length}`, catalogRef: bad }, t.admin.cookie)).body.itemId;
+      assert.equal(t.mdb().prepare('SELECT COUNT(*) c FROM product_map WHERE item_id = ?').get(id).c, 0);
+    }
+  } finally { rs(); rt(); await t.close(); }
+});

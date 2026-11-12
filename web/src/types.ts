@@ -2,6 +2,10 @@ import type { Lang } from './i18n';
 
 export type Household = { id: number; name: string; role: 'owner' | 'member' };
 export type MeModule = { id: string; name: string; kind: string; version: string; description: string; on: boolean; slots: string[]; web: string | null; css: string | null; i18n: string | null; lang?: { code: string; nativeName: string; dir: 'ltr' | 'rtl'; locale: string }; strings?: string };
+export type CatalogSuggestion = {
+  name: string; note: string | null; categoryId: number | null; price: number | null; priceMax: number | null; currency: string | null; perKg: boolean;
+  chains: { nameEn: string; nameHe: string }[]; ref: Record<string, unknown> | null;
+};
 export type Me = {
   id: number; username: string; email: string | null; name: string; role: 'admin' | 'user';
   language: Lang; theme: 'system' | 'light' | 'dark'; colorTheme: string; showAddedBy: boolean;

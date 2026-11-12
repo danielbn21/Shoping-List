@@ -6,9 +6,10 @@ import {
 import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { api, ApiError } from './api';
 import { t, errText, getLang, timeAgo } from './i18n';
+import { formatMoney } from './money';
 import { catName, fmt } from './util';
 import { SortableList, SortableRow, useDndSensors } from './dnd';
-import type { Cat, Detail, Entry, Me, PastItem, Store } from './types';
+import type { Cat, CatalogSuggestion, Detail, Entry, Me, PastItem, Store } from './types';
 import { useSlots } from './slots';
 import Section from './Section';
 import { orderSections, usePrefs } from './prefs';
@@ -22,7 +23,7 @@ export default function ManageTab({ data, me, reload, onDeleted }: Props) {
   const saved = usePrefs().manageOrder;
   // Every section is collapsible; the user chooses their order in Settings (module sections take part under "<module>:<id>").
   const sections: Record<string, { title: string; node: ReactNode } | null> = {
-    add: { title: t('addItems'), node: <AddItem data={data} reload={reload} /> },
+    add: { title: t('addItems'), node: <AddItem data={data} me={me} reload={reload} /> },
     onlist: { title: t('onThisList'), node: <OnThisList data={data} reload={reload} /> },
     past: { title: t('fromHistory'), node: <PastItems data={data} reload={reload} /> },
     csv: { title: t('csvTitle'), node: <CsvCard data={data} reload={reload} /> },
@@ -54,7 +55,7 @@ function Stepper({ value, onChange, min = 1 }: { value: number; onChange: (n: nu
 
 /* ---------------- add a new item ---------------- */
 
-function AddItem({ data, reload }: { data: Detail; reload: () => Promise<void> }) {
+function AddItem({ data, me, reload }: { data: Detail; me: Me; reload: () => Promise<void> }) {
   const { list, categories } = data;
   const [q, setQ] = useState('');
   const [qty, setQty] = useState('1');
@@ -63,24 +64,36 @@ function AddItem({ data, reload }: { data: Detail; reload: () => Promise<void> }
   const [newCat, setNewCat] = useState('');
   const [sugg, setSugg] = useState<PastItem[]>([]);
   const [similar, setSimilar] = useState<{ id: number; name: string }[] | null>(null);
+  // Products of the chosen supermarket branches, offered by a module while typing (nothing happens without one).
+  const hasCatalog = me.capabilities.includes('item-catalog');
+  const [catalog, setCatalog] = useState<CatalogSuggestion[]>([]);
+  const [pickedName, setPickedName] = useState('');
+  const [catalogRef, setCatalogRef] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState('');
   const creatingCat = catId === '__new__';
 
   useEffect(() => {
     setSimilar(null);
     const text = q.trim();
-    if (!text) { setSugg([]); return; }
+    if (!text) { setSugg([]); setCatalog([]); setCatalogRef(null); setPickedName(''); return; }
+    if (pickedName && text === pickedName) { setSugg([]); setCatalog([]); return; }   // just filled in from a suggestion: no new drop-down
+    if (pickedName) { setCatalogRef(null); setPickedName(''); }                         // the name was changed by hand: it is no longer that product
     let stale = false;
     const id = setTimeout(async () => {
       try {
         const r = await api<{ items: PastItem[] }>(`/households/${list.householdId}/items?q=${encodeURIComponent(text)}&mode=typeahead&listId=${list.id}`);
         if (!stale) setSugg(r.items);
       } catch { /* suggestions are optional */ }
+      if (!hasCatalog || text.length < 2) { if (!stale) setCatalog([]); return; }
+      try {
+        const c = await api<{ suggestions: CatalogSuggestion[] }>(`/lists/${list.id}/catalog?q=${encodeURIComponent(text)}`);
+        if (!stale) setCatalog(c.suggestions);
+      } catch { if (!stale) setCatalog([]); }
     }, 150);
     return () => { stale = true; clearTimeout(id); };
-  }, [q, list.householdId, list.id]);
+  }, [q, list.householdId, list.id, hasCatalog]);
 
-  const reset = () => { setQ(''); setQty('1'); setNote(''); setCatId(''); setNewCat(''); setSugg([]); setSimilar(null); setError(''); };
+  const reset = () => { setQ(''); setQty('1'); setNote(''); setCatId(''); setNewCat(''); setSugg([]); setCatalog([]); setCatalogRef(null); setPickedName(''); setSimilar(null); setError(''); };
 
   async function createCategory() {
     const name = newCat.trim();
@@ -97,7 +110,7 @@ function AddItem({ data, reload }: { data: Detail; reload: () => Promise<void> }
     try {
       await api(`/lists/${list.id}/entries`, {
         method: 'POST',
-        body: { quantity: Number(qty) || 1, note: note || undefined, categoryId: catId && !creatingCat ? Number(catId) : undefined, ...extra },
+        body: { quantity: Number(qty) || 1, note: note || undefined, categoryId: catId && !creatingCat ? Number(catId) : undefined, catalogRef: catalogRef ?? undefined, ...extra },
       });
       reset(); await reload();
     } catch (e) {
@@ -107,6 +120,18 @@ function AddItem({ data, reload }: { data: Detail; reload: () => Promise<void> }
   }
   const submit = (e: FormEvent) => { e.preventDefault(); if (q.trim() && !creatingCat) post({ name: q.trim() }); };
   const name = q.trim();
+  // A product picked from the stores: its name, a note (brand and pack size) and, when the household has a similar item, its category are filled in.
+  // The quantity is still yours to set; the product is remembered as the match for this item when it is added.
+  const pickCatalog = (s: CatalogSuggestion) => {
+    setQ(s.name); setPickedName(s.name); setCatalogRef(s.ref); setCatalog([]); setSugg([]); setSimilar(null);
+    if (s.note) setNote(s.note);
+    if (s.categoryId && categories.some((c) => c.id === s.categoryId)) setCatId(String(s.categoryId));
+  };
+  const priceText = (s: CatalogSuggestion) => {
+    if (s.price === null) return '';
+    const cur = s.currency ?? 'ILS';
+    return `${formatMoney(s.price, cur)}${s.priceMax ? `–${formatMoney(s.priceMax, cur)}` : ''}${s.perKg ? ' / kg' : ''}`;
+  };
 
   return (
     <form className="stack-sm" onSubmit={submit}>
@@ -127,6 +152,23 @@ function AddItem({ data, reload }: { data: Detail; reload: () => Promise<void> }
             <button type="button" key={s.id} onClick={() => post({ itemId: s.id, source: 'typeahead' })}>
               <span dir="auto">{s.name}</span>
               {s.onListQty > 0 && <span className="chip warn">{t('onListQty', { n: fmt(s.onListQty) })}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!similar && name && catalog.length > 0 && (
+        <div className="suggest" aria-label={t('fromStores')}>
+          <p className="muted" style={{ margin: '2px 4px', fontWeight: 700 }}>{t('fromStores')}</p>
+          {catalog.map((s, i) => (
+            <button type="button" key={`${i}:${s.name}`} onClick={() => pickCatalog(s)} style={{ textAlign: 'start' }}>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span dir="auto" style={{ display: 'block' }}>{s.name}</span>
+                <span className="muted" style={{ display: 'block', fontWeight: 400, fontSize: '0.85rem' }}>
+                  {[...(s.note ? s.note.split(' · ') : []), s.chains.map((c) => (getLang() === 'he' ? c.nameHe : c.nameEn)).join(', ')].filter(Boolean).map((x, k, a) => <span key={k}><bdi>{x}</bdi>{k < a.length - 1 ? ' · ' : ''}</span>)}
+                </span>
+              </span>
+              {priceText(s) && <span style={{ whiteSpace: 'nowrap' }} dir="ltr">{priceText(s)}</span>}
             </button>
           ))}
         </div>

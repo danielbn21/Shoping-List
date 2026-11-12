@@ -51,13 +51,19 @@ export default function compareRoutes(ctx, { chains, dir, prices, auto, oldAfter
     const m = maps.byKey.get(`${it.itemId}|${chain}`);
     if (m?.status === 'none') return { missing: 'marked' };
     if (!branchId) return { missing: 'needsMatch' };
-    if (m?.code) {
-      let row = prices.priceAt(chain, branchId, m.code), via = m.status === 'auto' ? 'auto' : 'confirmed';
+    // The user's own choice wins; then an exact barcode confirmed at another chain; then what was carried over by name.
+    if (m?.code && m.status === 'confirmed') {
+      let row = prices.priceAt(chain, branchId, m.code), via = 'confirmed';
       if (!row && m.name) { row = prices.rowByName(chain, branchId, norm(m.name)); via = 'sameName'; }
       return row ? { row, via, m } : { missing: 'notAtBranch' };
     }
     const bc = maps.barcode.get(it.itemId);
     if (bc && bc.chain !== chain) { const row = prices.priceAt(chain, branchId, bc.code); if (row) return { row, via: 'barcode' }; }
+    if (m?.code) {
+      let row = prices.priceAt(chain, branchId, m.code), via = 'auto';
+      if (!row && m.name) { row = prices.rowByName(chain, branchId, norm(m.name)); via = 'sameName'; }
+      return row ? { row, via, m } : { missing: 'notAtBranch' };
+    }
     return { missing: 'needsMatch' };
   }
 

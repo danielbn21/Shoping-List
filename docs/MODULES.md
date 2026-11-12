@@ -60,7 +60,7 @@ export default function register(ctx) {
   ctx.provide('receipt-reader', { read: async ({ file, mime, userId, engine }) => ({ … }) });   // must be listed in "provides"
   ctx.events.on('list.deleted', ({ listId }) => { … });   // list.deleted, item.deleted, store.deleted, household.deleted, user.deleted
   ctx.core.listAccess(user, listId); ctx.core.listOpenEntries(listId); ctx.core.householdStores(hid);
-  ctx.core.storeAccess(user, storeId); ctx.core.lastPaid({ itemId, storeIds, userId }); ctx.audit(userId, action, target, detail);
+  ctx.core.storeAccess(user, storeId); ctx.core.similarItem(householdId, name); ctx.core.itemInHousehold(householdId, itemId); ctx.core.lastPaid({ itemId, storeIds, userId }); ctx.audit(userId, action, target, detail);
 }
 ```
 
@@ -71,6 +71,7 @@ Rules enforced when a module is installed: only `node:` built-ins and relative i
 | Capability | Interface | Used by |
 | --- | --- | --- |
 | `receipt-reader` | `read({ file, mime, userId, engine }) → { engine, lines, total, … }` (never saves anything) | the receipt queue in `server/src/receipts.js` |
+| `item-catalog` | `search({ user, listId, householdId, q, limit }) → [{ name, note?, categoryId?, price?, priceMax?, currency?, perKg?, chains?, ref? }]` and optional `afterAdd({ user, listId, householdId, itemId, ref })` (called after an item picked from a suggestion is added; failures are ignored) | Add items in Manage list (`GET /api/lists/:id/catalog?q=`, Editors and Owners; `catalogRef` in `POST /api/lists/:id/entries`) |
 | `price-source` | `chains()` and `priceAt(chain, storeId, code)`; provided by `price-compare` (it reads the portals itself) | `price-compare` |
 
 ## Browser side: `web/index.tsx`

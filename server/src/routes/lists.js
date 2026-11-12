@@ -112,6 +112,29 @@ export default async function listRoutes(app) {
   });
 
   // ---------- adding entries (duplicate-aware) ----------
+  // Suggestions from an 'item-catalog' module (for example the products the chosen supermarket branches sell). With no such module, or none
+  // for this user, the list is empty and the Add items form works as it always did.
+  const catalogProvider = (userId) => app.modules.providerFor('item-catalog', userId);
+  app.get('/api/lists/:id/catalog', { ...pre, config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const acc = listAccess(req.user, Number(req.params.id));
+    if (!acc) return bad(reply, 'not_found', 404);
+    if (!canEdit(acc)) return bad(reply, 'forbidden', 403);
+    const q = cleanText(req.query.q, 80);
+    const provider = catalogProvider(req.user.id);
+    if (!provider) return { available: false, suggestions: [] };
+    if (!q || q.length < 2) return { available: true, suggestions: [] };
+    try {
+      const found = await provider.search({ user: req.user, listId: acc.list.id, householdId: acc.list.household_id, q, limit: 8 });
+      const suggestions = (Array.isArray(found) ? found : []).slice(0, 8).map((s) => ({
+        name: cleanText(s.name, 100), note: cleanText(s.note, 200) || null, categoryId: Number.isInteger(s.categoryId) ? s.categoryId : null,
+        price: Number.isFinite(s.price) ? s.price : null, priceMax: Number.isFinite(s.priceMax) ? s.priceMax : null, currency: typeof s.currency === 'string' ? s.currency.slice(0, 3) : null,
+        perKg: !!s.perKg, chains: (Array.isArray(s.chains) ? s.chains : []).slice(0, 12).map((c) => ({ nameEn: cleanText(c.nameEn, 40), nameHe: cleanText(c.nameHe, 40) })),
+        ref: s.ref && typeof s.ref === 'object' && JSON.stringify(s.ref).length <= 300 ? s.ref : null,
+      })).filter((s) => s.name);
+      return { available: true, suggestions };
+    } catch (e) { req.log.warn({ err: e }, 'item catalog search failed'); return { available: true, suggestions: [] }; }
+  });
+
   app.post('/api/lists/:id/entries', pre, async (req, reply) => {
     const acc = listAccess(req.user, Number(req.params.id));
     if (!acc) return bad(reply, 'not_found', 404);
@@ -160,15 +183,23 @@ export default async function listRoutes(app) {
     if (item.archived) db.prepare('UPDATE items SET archived = 0 WHERE id = ?').run(item.id);
     if (categoryId && !item.category_id) db.prepare('UPDATE items SET category_id = ? WHERE id = ?').run(categoryId, item.id);
 
+    // The product picked from a catalog suggestion, if any: the catalog module may remember it (for example as the confirmed match for the item).
+    const ref = b.catalogRef && typeof b.catalogRef === 'object' && JSON.stringify(b.catalogRef).length <= 300 ? b.catalogRef : null;
+    const chosen = async () => {
+      const provider = ref && catalogProvider(req.user.id);
+      if (provider?.afterAdd) { try { await provider.afterAdd({ user: req.user, listId: acc.list.id, householdId: hid, itemId: item.id, ref }); } catch (e) { req.log.warn({ err: e }, 'item catalog afterAdd failed'); } }
+    };
     const now = Date.now();
     const existing = db.prepare("SELECT * FROM list_entries WHERE list_id = ? AND item_id = ? AND deleted = 0 AND state = 'open'").get(acc.list.id, item.id);
     if (existing) {
       db.prepare('UPDATE list_entries SET quantity = quantity + ?, note = COALESCE(?, note), updated_at = ? WHERE id = ?').run(qty, note, now, existing.id);
+      await chosen();
       return { entryId: existing.id, itemId: item.id, merged: true };
     }
     const entryId = Number(db.prepare(`INSERT INTO list_entries(list_id, item_id, quantity, unit, note, added_by, added_at, updated_at, position)
       VALUES (?,?,?,?,?,?,?,?, (SELECT COALESCE(MAX(position), 0) + 1 FROM list_entries WHERE list_id = ?))`)
       .run(acc.list.id, item.id, qty, unit ?? item.default_unit, note ?? item.default_note ?? null, req.user.id, now, now, acc.list.id).lastInsertRowid);
+    await chosen();
     return { entryId, itemId: item.id, merged: false };
   });
 

@@ -4,6 +4,7 @@ import { createPortals } from './portals/clients.js';
 import { createDirectory } from './portals/directory.js';
 import { createPrices } from './prices.js';
 import { createAutoMatcher } from './automatch.js';
+import { createCatalog } from './catalog.js';
 import compareRoutes from './compare.js';
 import portalRoutes from './portalRoutes.js';
 
@@ -165,6 +166,8 @@ export default function register(ctx) {
   o.expose?.({ dir, chains, portals, prices }); // tests only
   const auto = createAutoMatcher({ db, prices, chains });
   compareRoutes(ctx, { chains, dir, prices, auto, oldAfterDays: () => ctx.settings.get('old_after_days', 60) });
+  // 'item-catalog': Add items offers the products of the chosen branches while you type (see catalog.js)
+  ctx.provide('item-catalog', createCatalog({ db, prices, chains, core: ctx.core, auto }));
   portalRoutes(ctx, { chains, dir, portals });
 
   // Admin setting of this module (shown in the admin section of the web app).

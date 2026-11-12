@@ -1,5 +1,6 @@
 import { makeAccess } from '../access.js';
-import { audit } from '../util.js';
+import { audit, getSetting } from '../util.js';
+import { findReceiptMatch } from '../match.js';
 
 // The read API modules get instead of SQL access to the core database. Everything here is read-only apart from audit().
 // Each function takes the acting user's row (req.user) where permissions matter, so a module can never see more than the user may.
@@ -26,6 +27,12 @@ export function makeCoreApi(app) {
       WHERE e.list_id = ? AND e.deleted = 0 AND e.state = 'open' ORDER BY e.position, e.id`).all(Number(listId)),
     // An item of the household's item bank ({ id, name }), or null when it is not one of the household's.
     itemInHousehold: (householdId, itemId) => db.prepare('SELECT id, name FROM items WHERE id = ? AND household_id = ? AND archived = 0').get(Number(itemId), Number(householdId)) ?? null,
+    // The household's own item that a product name is most like (every word of the item appears in the name), or null: { id, name, categoryId, defaultNote }.
+    similarItem: (householdId, name) => {
+      const items = db.prepare('SELECT * FROM items WHERE household_id = ? AND archived = 0').all(Number(householdId));
+      const it = findReceiptMatch(String(name || ''), items, { strictness: getSetting(db, 'match_strictness') });
+      return it ? { id: it.id, name: it.name, categoryId: it.category_id ?? null, defaultNote: it.default_note ?? null } : null;
+    },
     // The household's stores for a list: [{ id, name }]
     householdStores: (householdId) => db.prepare('SELECT id, name FROM stores WHERE household_id = ? ORDER BY id').all(Number(householdId)),
     // The store when the user belongs to its household, else null.

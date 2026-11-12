@@ -1,14 +1,15 @@
 {
   "id": "price-compare",
   "name": "Price comparison",
-  "version": "1.2.0",
-  "description": "Compares the open items of a list across supermarket branches using the daily price files of twelve Israeli chains (read lazily, merged so a price stays until a newer one arrives), with receipt prices as a labelled fallback. You match a product once; the match is used at every branch of the chain, and clear matches are carried to the other chains automatically.",
+  "version": "1.3.0",
+  "description": "Compares the open items of a list across supermarket branches using the daily price files of twelve Israeli chains (read lazily, merged so a price stays until a newer one arrives), with receipt prices as a labelled fallback. You match a product once; the match is used at every branch of the chain, and clear matches are carried to the other chains automatically. It also suggests the products of your chosen branches while you add items.",
   "author": "Shopping list",
   "requires": {
-    "core": ">=1.4.1 <2.0.0"
+    "core": ">=1.4.2 <2.0.0"
   },
   "provides": [
-    "price-source"
+    "price-source",
+    "item-catalog"
   ],
   "slots": [
     "list.tab",
