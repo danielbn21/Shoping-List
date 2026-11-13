@@ -196,6 +196,7 @@ export default async function listRoutes(app) {
       await chosen();
       return { entryId: existing.id, itemId: item.id, merged: true };
     }
+    db.prepare('INSERT OR IGNORE INTO list_items(list_id, item_id, added_at) VALUES (?, ?, ?)').run(acc.list.id, item.id, now);
     const entryId = Number(db.prepare(`INSERT INTO list_entries(list_id, item_id, quantity, unit, note, added_by, added_at, updated_at, position)
       VALUES (?,?,?,?,?,?,?,?, (SELECT COALESCE(MAX(position), 0) + 1 FROM list_entries WHERE list_id = ?))`)
       .run(acc.list.id, item.id, qty, unit ?? item.default_unit, note ?? item.default_note ?? null, req.user.id, now, now, acc.list.id).lastInsertRowid);
@@ -238,8 +239,14 @@ export default async function listRoutes(app) {
     const typeahead = req.query.mode === 'typeahead';
     const listId = Number(req.query.listId) || 0;
     const onList = new Map(db.prepare("SELECT item_id, quantity FROM list_entries WHERE list_id = ? AND deleted = 0 AND state = 'open'").all(listId).map((r) => [r.item_id, r.quantity]));
-    const stats = new Map(db.prepare('SELECT item_id, COUNT(*) AS n, MAX(purchased_at) AS last FROM purchase_events WHERE household_id = ? GROUP BY item_id').all(hid).map((r) => [r.item_id, r]));
+    // With a list given, "past items" means this list's own: items it has had (the item itself, with its category, note and price matches, is shared by the household).
+    const listAcc = listId ? listAccess(req.user, listId) : null;
+    if (listId && (!listAcc || listAcc.list.household_id !== hid)) return bad(reply, 'not_found', 404);
+    const stats = new Map((listId
+      ? db.prepare('SELECT item_id, COUNT(*) AS n, MAX(purchased_at) AS last FROM purchase_events WHERE list_id = ? GROUP BY item_id').all(listId)
+      : db.prepare('SELECT item_id, COUNT(*) AS n, MAX(purchased_at) AS last FROM purchase_events WHERE household_id = ? GROUP BY item_id').all(hid)).map((r) => [r.item_id, r]));
     let items = bankFor(hid);
+    if (listId) { const mine = new Set(db.prepare('SELECT item_id FROM list_items WHERE list_id = ?').all(listId).map((r) => r.item_id)); items = items.filter((i) => mine.has(i.id)); }
     if (q) {
       items = findMatches(q, items, { strictness: getSetting(db, 'match_strictness'), typeahead: true, limit: typeahead ? 6 : 100 }).map((m) => m.item);
     } else {
@@ -253,6 +260,51 @@ export default async function listRoutes(app) {
         timesPurchased: stats.get(i.id)?.n ?? 0, lastPurchasedAt: stats.get(i.id)?.last ?? null,
       })),
     };
+  });
+
+  // Remove items from a list's past items (many at once). Items that are on the list right now are kept: they are not past yet.
+  // The item itself stays in the household, so other lists and the price matches are untouched.
+  app.post('/api/lists/:id/past-items/remove', pre, async (req, reply) => {
+    const acc = listAccess(req.user, Number(req.params.id));
+    if (!acc) return bad(reply, 'not_found', 404);
+    if (!canEdit(acc)) return bad(reply, 'forbidden', 403);
+    const ids = (req.body || {}).itemIds;
+    if (!Array.isArray(ids) || !ids.length || ids.length > 500 || ids.some((i) => !Number.isInteger(i))) return bad(reply, 'invalid_value');
+    const onList = db.prepare("SELECT 1 FROM list_entries WHERE list_id = ? AND item_id = ? AND deleted = 0 AND state IN ('open', 'in_cart')");
+    const drop = db.prepare('DELETE FROM list_items WHERE list_id = ? AND item_id = ?');
+    let removed = 0; const skipped = [];
+    db.transaction(() => {
+      for (const id of new Set(ids)) {
+        if (onList.get(acc.list.id, id)) { skipped.push(id); continue; }
+        removed += drop.run(acc.list.id, id).changes;
+      }
+    })();
+    if (removed) audit(db, req.user.id, 'list.past_items_removed', String(acc.list.id), { removed });
+    return { removed, skipped };
+  });
+
+  // Price estimates for what is on the list: the last price paid for each item at the chosen store (or anywhere when no store is chosen),
+  // from your own receipts; an item with no receipt price falls back to the price saved on the item. Only trips in the asked currency count,
+  // and purchases from private lists the user is not on are not used.
+  app.get('/api/lists/:id/estimates', pre, async (req, reply) => {
+    const acc = listAccess(req.user, Number(req.params.id));
+    if (!acc) return bad(reply, 'not_found', 404);
+    const storeId = Number(req.query.storeId) || null;
+    const currency = /^[A-Z]{3}$/.test(String(req.query.currency || '')) ? String(req.query.currency) : 'ILS';
+    if (storeId && !db.prepare('SELECT 1 FROM stores WHERE id = ? AND household_id = ?').get(storeId, acc.list.household_id)) return bad(reply, 'not_found', 404);
+    const visible = "(p.list_id IS NULL OR l.visibility = 'household' OR p.list_id IN (SELECT list_id FROM list_members WHERE user_id = @uid))";
+    const last = db.prepare(`SELECT p.unit_price, p.purchased_at FROM purchase_events p LEFT JOIN trips t ON t.id = p.trip_id LEFT JOIN lists l ON l.id = p.list_id
+      WHERE p.item_id = @item AND p.household_id = @hid AND p.unit_price IS NOT NULL AND (t.currency IS NULL OR t.currency = @cur) AND ${visible}
+      ${storeId ? 'AND p.store_id = @store' : ''} ORDER BY p.purchased_at DESC, p.id DESC LIMIT 1`);
+    const manual = db.prepare('SELECT price FROM items WHERE id = ?');
+    const prices = {};
+    for (const e of db.prepare("SELECT DISTINCT item_id FROM list_entries WHERE list_id = ? AND deleted = 0 AND state IN ('open', 'in_cart')").all(acc.list.id)) {
+      const p = last.get({ item: e.item_id, hid: acc.list.household_id, cur: currency, uid: req.user.id, ...(storeId ? { store: storeId } : {}) });
+      if (p) { prices[e.item_id] = { unitPrice: p.unit_price, source: storeId ? 'store' : 'last', at: p.purchased_at }; continue; }
+      const m = manual.get(e.item_id)?.price;
+      if (Number.isFinite(m) && m > 0) prices[e.item_id] = { unitPrice: m, source: 'item', at: null };
+    }
+    return { currency, storeId, prices };
   });
 
   const itemAccess = (user, id) => {

@@ -368,6 +368,20 @@ CREATE TABLE module_access (
 `,
 // 8: per-user interface preferences as JSON (1.3.1): the order of the Manage list sections and which sections are left open.
 `ALTER TABLE users ADD COLUMN ui_prefs TEXT NOT NULL DEFAULT '{}';`,
+// 9: past items belong to a list (1.4.3). An item is still one household record (name, category, note, price matches), but each list
+// keeps its own set of items it has had. Existing lists keep every item they have ever had an entry or a purchase for.
+`
+CREATE TABLE list_items (
+  list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  added_at INTEGER NOT NULL,
+  PRIMARY KEY (list_id, item_id)
+);
+CREATE INDEX list_items_item ON list_items(item_id);
+INSERT OR IGNORE INTO list_items(list_id, item_id, added_at) SELECT list_id, item_id, MIN(added_at) FROM list_entries GROUP BY list_id, item_id;
+INSERT OR IGNORE INTO list_items(list_id, item_id, added_at) SELECT list_id, item_id, MIN(purchased_at) FROM purchase_events
+  WHERE list_id IS NOT NULL AND item_id IS NOT NULL GROUP BY list_id, item_id;
+`,
 ];
 
 export function openDb(dataDir) {

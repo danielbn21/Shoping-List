@@ -372,6 +372,9 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
   const [qtys, setQtys] = useState<Record<number, number>>({});
   const [editing, setEditing] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [msg, setMsg] = useState('');
+  const [selecting, setSelecting] = useState(false);       // pick several items to remove them at once
+  const [picked, setPicked] = useState<Set<number>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -388,6 +391,21 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
     try { await fn(); await reload(); await load(); } catch (e) { setError(errText(e)); }
   };
   const shown = (items ?? []).filter((i) => (filter === '' ? true : filter === 'none' ? i.categoryId === null : i.categoryId === Number(filter)));
+  const removable = shown.filter((i) => i.onListQty === 0);   // what is on the list now is not past yet
+  const pickedShown = removable.filter((i) => picked.has(i.id));
+  const toggle = (id: number) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const stopSelecting = () => { setSelecting(false); setPicked(new Set()); };
+  // Remove from this list's past items only: the item itself stays in the household, so other lists and the price matches are untouched.
+  const removeItems = async (ids: number[], confirmText: string) => {
+    if (!ids.length || !confirm(confirmText)) return;
+    setError(''); setMsg('');
+    try {
+      const r = await api<{ removed: number; skipped: number[] }>(`/lists/${list.id}/past-items/remove`, { method: 'POST', body: { itemIds: ids } });
+      setMsg([t('pastRemoved', { n: r.removed }), r.skipped.length ? t('pastKept', { n: r.skipped.length }) : ''].filter(Boolean).join(' '));
+      setTimeout(() => setMsg(''), 6000);
+      setPicked(new Set()); await load(); await reload();
+    } catch (e) { setError(errText(e)); }
+  };
 
   return (
     <div className="stack-sm">
@@ -405,6 +423,22 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
         </select>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
+      {msg && <p className="ok" role="status">{msg}</p>}
+      {items && items.length > 0 && (
+        <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+          {selecting
+            ? <>
+                <span className="muted" role="status">{t('pastSelectedN', { n: pickedShown.length })}</span>
+                <span className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <button type="button" className="btn small" onClick={() => setPicked(pickedShown.length === removable.length ? new Set() : new Set(removable.map((i) => i.id)))}>{pickedShown.length === removable.length && removable.length > 0 ? t('pastSelectNone') : t('pastSelectAll')}</button>
+                  <button type="button" className="btn small danger" disabled={!pickedShown.length}
+                    onClick={() => removeItems(pickedShown.map((i) => i.id), t('confirmRemoveMany', { n: pickedShown.length }))}>{t('pastRemoveN', { n: pickedShown.length })}</button>
+                  <button type="button" className="btn small" onClick={stopSelecting}>{t('pastSelectDone')}</button>
+                </span>
+              </>
+            : <button type="button" className="btn small" onClick={() => setSelecting(true)}>{t('pastSelect')}</button>}
+        </div>
+      )}
       {items && !shown.length && <p className="muted">{t('bankEmpty')}</p>}
       <div>
         {shown.map((i) => {
@@ -413,6 +447,18 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
           const caption = i.timesPurchased > 0 ? t('boughtShort', { n: i.timesPurchased, when: timeAgo(i.lastPurchasedAt) }) : t('neverBought');
           const full = [i.onListQty > 0 ? t('onListQty', { n: fmt(i.onListQty) }) : '',
             i.timesPurchased > 0 ? `${t('boughtTimes', { n: i.timesPurchased })} · ${t('lastBought', { when: timeAgo(i.lastPurchasedAt) })}` : t('neverBought')].filter(Boolean).join(' · ');
+          if (selecting) {
+            const onList = i.onListQty > 0;
+            return (
+              <label className="past" key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 4px', opacity: onList ? 0.6 : 1 }}>
+                <input type="checkbox" checked={picked.has(i.id) && !onList} disabled={onList} onChange={() => toggle(i.id)} aria-label={i.name} />
+                <span className="past-name" dir="auto" style={{ flex: 1 }}>
+                  <span className="past-top"><strong dir="auto">{i.name}</strong>{onList && <span className="onlist">{t('pastOnListNote')}</span>}</span>
+                  <small className="muted">{caption}</small>
+                </span>
+              </label>
+            );
+          }
           return (
             <div className="past" key={i.id}>
               <div className="past-row">
@@ -429,8 +475,8 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
                   setQtys({ ...qtys, [i.id]: 1 });
                 })}>{t('add')}</button>
                 <button className="iconbtn" aria-label={t('editItem')} aria-expanded={open} onClick={() => setEditing(open ? null : i.id)}>✎</button>
-                <button className="iconbtn danger" aria-label={t('removeFromBank')} title={t('removeFromBank')}
-                  onClick={() => { if (confirm(t('confirmRemoveBank', { name: i.name }))) run(() => api(`/items/${i.id}`, { method: 'DELETE' })); }}>✕</button>
+                {i.onListQty === 0 && <button className="iconbtn danger" aria-label={t('removeFromBank')} title={t('removeFromBank')}
+                  onClick={() => removeItems([i.id], t('confirmRemoveBank', { name: i.name }))}>✕</button>}
               </div>
               {open && <ItemEditor item={i} categories={categories} onCancel={() => setEditing(null)} onSaved={async () => { await reload(); await load(); setEditing(null); }} />}
             </div>

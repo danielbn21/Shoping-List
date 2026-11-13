@@ -54,6 +54,7 @@ export const SETTING_DEFAULTS = {
   app_url: '',
   match_strictness: 'normal', // used by duplicate detection (Stage 2)
   allow_user_households: true, // may ordinary users create their own households?
+  estimates_default: true,     // show price estimates in the Shop tab unless the user chose otherwise
   smtp: { host: '', port: 587, secure: false, user: '', pass: '', from: '' },
   default_categories: [
     { en: 'Produce', he: 'פירות וירקות' },
@@ -112,6 +113,7 @@ export function userPayload(db, u) {
     JOIN households h ON h.id = m.household_id
     LEFT JOIN user_household_order o ON o.user_id = m.user_id AND o.household_id = h.id
     WHERE m.user_id = ? ORDER BY COALESCE(o.position, 1000000), h.id`).all(u.id);
+  const prefs = (() => { try { return JSON.parse(u.ui_prefs || '{}'); } catch { return {}; } })();
   return {
     id: u.id, username: u.username, email: u.email, name: u.name, role: u.role,
     language: u.language, theme: u.theme, colorTheme: u.color_theme,
@@ -119,7 +121,10 @@ export function userPayload(db, u) {
     households,
     canCreateHousehold: u.role === 'admin' || !!getSetting(db, 'allow_user_households'),
     currency: u.currency ?? null,
-    prefs: (() => { try { return JSON.parse(u.ui_prefs || '{}'); } catch { return {}; } })(),
+    prefs,
+    // price estimates in the Shop tab: the user's own choice, else the admin's default
+    estimatesEnabled: typeof prefs.showEstimates === 'boolean' ? prefs.showEstimates : !!getSetting(db, 'estimates_default'),
+    estimatesDefault: !!getSetting(db, 'estimates_default'),
   };
 }
 

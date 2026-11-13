@@ -157,7 +157,7 @@ function Users({ me }: { me: Me }) {
 
 type SettingsData = {
   registration_mode: 'open' | 'invite-only' | 'admin-only';
-  session_days: number; min_password_length: number; app_url: string; allow_user_households: boolean;
+  session_days: number; min_password_length: number; app_url: string; allow_user_households: boolean; estimates_default: boolean;
   smtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string };
 };
 
@@ -200,6 +200,7 @@ function ServerSettings() {
           ))}
         </div>
         <label className="check"><input type="checkbox" checked={s.allow_user_households} onChange={(e) => setS({ ...s, allow_user_households: e.target.checked })} /><span>{t('allowUserHouseholds')}</span></label>
+        <label className="check"><input type="checkbox" checked={s.estimates_default} onChange={(e) => setS({ ...s, estimates_default: e.target.checked })} /><span>{t('adminEstimatesDefault')}</span></label>
         <label className="field"><span>{t('sessionDays')}</span>
           <input type="number" min={1} max={3650} value={s.session_days} onChange={(e) => setS({ ...s, session_days: Number(e.target.value) })} /></label>
         <label className="field"><span>{t('minPassword')}</span>

@@ -92,6 +92,8 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
         </div>
       </form>
 
+      <EstimatesSetting me={me} onChange={onChange} />
+
       <ManageLayout me={me} />
 
       <ModuleSettingsSections me={me} onChange={onChange} />
@@ -114,5 +116,24 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
       <div><button className="btn" onClick={onLogout}>{t('signOut')}</button></div>
       <p className="muted" dir="ltr">{t('versionLine', { web: __APP_VERSION__, server: cfg.version ?? '?' })}</p>
     </div>
+  );
+}
+
+// Price estimates in the Shop tab: each user decides for themselves; until they do, the admin's default applies.
+function EstimatesSetting({ me, onChange }: { me: Me; onChange: () => void }) {
+  const [error, setError] = useState('');
+  const own = me.prefs.showEstimates;
+  const save = async (v: boolean | null) => {
+    setError('');
+    try { await api('/me/prefs', { method: 'PUT', body: { showEstimates: v } }); onChange(); } catch (e) { setError(errText(e)); }
+  };
+  return (
+    <section className="card stack-sm">
+      <h2>{t('estimateTitle')}</h2>
+      {error && <p className="error" role="alert">{error}</p>}
+      <label className="check"><input type="checkbox" checked={me.estimatesEnabled} onChange={(e) => save(e.target.checked)} /><span>{t('showEstimates')}</span></label>
+      <p className="muted" style={{ margin: 0 }}>{t('showEstimatesHelp', { state: me.estimatesDefault ? t('stateOn') : t('stateOff') })}</p>
+      {own !== undefined && <button type="button" className="btn small" style={{ justifySelf: 'start' }} onClick={() => save(null)}>{t('useDefault')}</button>}
+    </section>
   );
 }

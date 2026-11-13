@@ -215,6 +215,8 @@ input[type="search"] { width: 100%; min-height: 46px; padding: 10px 12px; border
 .shop-row.done .tick::after { content: "✓"; }
 .shop-row.done .name { text-decoration: line-through; color: var(--muted); }
 .shop-row.done { opacity: 0.85; }
+.est { flex: none; font-size: .9rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.est-total { margin: 0; font-weight: 700; }
 .qtybadge { flex: none; font-weight: 800; padding: 4px 12px; border-radius: 999px; background: var(--signal); color: var(--signal-ink); font-variant-numeric: tabular-nums; }
 .shopbar {
   position: sticky; bottom: 10px; z-index: 4; display: flex; gap: 8px; align-items: center; margin-top: 16px; padding: 10px;

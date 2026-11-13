@@ -165,6 +165,11 @@ export default async function authRoutes(app) {
       else if (!Array.isArray(b.manageOrder) || b.manageOrder.length > 40 || b.manageOrder.some((k) => typeof k !== 'string' || !KEY.test(k)) || new Set(b.manageOrder).size !== b.manageOrder.length) return bad(reply, 'invalid_value');
       else cur.manageOrder = b.manageOrder;
     }
+    if (b.showEstimates !== undefined) {
+      if (b.showEstimates === null) delete cur.showEstimates;   // back to the admin's default
+      else if (typeof b.showEstimates !== 'boolean') return bad(reply, 'invalid_value');
+      else cur.showEstimates = b.showEstimates;
+    }
     if (b.manageOpen !== undefined) {
       if (b.manageOpen === null) delete cur.manageOpen;
       else if (typeof b.manageOpen !== 'object' || Array.isArray(b.manageOpen) || Object.keys(b.manageOpen).length > 60 || Object.entries(b.manageOpen).some(([k, v]) => !KEY.test(k) || typeof v !== 'boolean')) return bad(reply, 'invalid_value');

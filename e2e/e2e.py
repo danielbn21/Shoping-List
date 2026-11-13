@@ -398,11 +398,13 @@ with sync_playwright() as p:
 
 
     # ---- past items: one compact row, plus item editor ----
+    page.locator(".entry.manage", has_text="Milk").get_by_role("button", name="Remove").click()   # past items are what is not on the list now
+    page.wait_for_timeout(500)
     milk_row = page.locator(".past", has_text="Milk").first
     centers = [b["y"] + b["height"] / 2 for b in [
         milk_row.locator(".past-name").bounding_box(), milk_row.locator(".qty").bounding_box(),
         milk_row.get_by_role("button", name="Add to list").bounding_box(),
-        milk_row.get_by_role("button", name="Edit").bounding_box(), milk_row.get_by_role("button", name="Remove from bank").bounding_box()]]
+        milk_row.get_by_role("button", name="Edit").bounding_box(), milk_row.get_by_role("button", name="Remove from past items").bounding_box()]]
     check("past item is a single line (name, qty, add, edit, remove)", max(centers) - min(centers) < 8 and milk_row.locator(".past-row").bounding_box()["height"] < 80, str(centers))
     milk_row.screenshot(path="/tmp/shots/05b-past-row.png")
     milk_row.get_by_role("button", name="Edit").click()
@@ -414,8 +416,58 @@ with sync_playwright() as p:
     milk_row.get_by_role("button", name="Edit").click()
     check("item editor persists default note and price", page.locator(".past-edit").get_by_label("Default note").input_value() == "lactose free" and page.locator(".past-edit").get_by_label("Price (optional)").input_value() == "7.9")
     page.locator(".past-edit").get_by_role("button", name="Cancel").click()
-    page.locator(".entry.manage", has_text="Milk").get_by_role("button", name="Remove").click()
+
+    # ---- 1.4.3: select several past items and remove them at once; price estimates in the Shop tab, with a Settings switch ----
+    page.locator(".past", has_text="Tahini").first.get_by_role("button", name="Edit").click()
+    page.locator(".past-edit").get_by_label("Price (optional)").fill("12")
+    page.locator(".past-edit").get_by_role("button", name="Save", exact=True).click()
+    page.wait_for_selector(".past-edit", state="detached")
+    add("Napkins", "1")                                                                   # a second past item to pick: on the list, then taken off it
+    page.locator(".entry.manage", has_text="Napkins").get_by_role("button", name="Remove").click()
     page.wait_for_timeout(500)
+    before = page.locator(".past").count()
+    page.get_by_role("button", name="Select", exact=True).click()
+    check("Select mode: a checkbox per past item, and an item that is on the list now cannot be picked",
+          page.locator(".past input[type=checkbox]").count() == before and page.locator(".past", has_text="Tahini").locator("input[type=checkbox]").is_disabled() and not page.locator(".past", has_text="Milk").locator("input[type=checkbox]").is_disabled())
+    pickable = page.evaluate("() => [...document.querySelectorAll('.past input[type=checkbox]:not([disabled])')].map((e) => e.getAttribute('aria-label')).filter((n) => n !== 'Milk')")
+    pick = pickable[:2]
+    assert len(pick) == 2, pickable
+    for n in pick: page.locator(".past").get_by_label(n, exact=True).check()
+    page.locator("span[role=status]", has_text="2 selected").wait_for()
+    check("the number of selected items is shown", page.locator("span[role=status]", has_text="2 selected").count() == 1)
+    page.get_by_role("button", name="Remove (2)").click()
+    page.wait_for_selector("text=2 removed.")
+    check("several past items are removed in one go (and only from this list)", all(page.locator(".past", has_text=n).count() == 0 for n in pick) and page.locator(".past", has_text="Milk").count() == 1 and page.locator(".past").count() == before - 2, str(page.locator(".past").count()))
+    page.get_by_role("button", name="Done", exact=True).click()
+
+    def list_tab(name):
+        page.get_by_role("button", name="Lists", exact=True).click()
+        page.wait_for_selector("button:has-text('Manage list'), .list-card")
+        if page.locator(".list-card").count():
+            page.locator(".list-card").first.click()
+            page.wait_for_selector("button:has-text('Manage list')")
+        page.get_by_role("button", name=name, exact=True).click()
+    list_tab("Shop")
+    page.wait_for_selector(".est")
+    check("an item with a known price shows its estimate on the Shop tab, with an estimated total", "\u2248" in page.locator(".est").first.inner_text() and "Estimated total" in page.locator("main").inner_text(), page.locator("main").inner_text()[:200])
+    page.screenshot(path="/tmp/shots/05c-estimates.png", full_page=True)
+    page.get_by_role("button", name="Settings", exact=True).click()
+    est_card = page.locator("section.card", has=page.locator("h2:text-is('Price estimates')"))
+    check("Settings has the estimates switch, on by default", est_card.get_by_label("Show price estimates in the Shop tab").is_checked() and "Use the default" not in est_card.inner_text())
+    est_card.get_by_label("Show price estimates in the Shop tab").click()
+    est_card.get_by_role("button", name="Use the default").wait_for()
+    list_tab("Shop")
+    page.wait_for_timeout(600)
+    check("switched off: no estimates and no total on the Shop tab", page.locator(".est").count() == 0 and "Estimated total" not in page.locator("main").inner_text())
+    page.get_by_role("button", name="Settings", exact=True).click()
+    page.locator("section.card", has=page.locator("h2:text-is('Price estimates')")).get_by_role("button", name="Use the default").click()
+    page.wait_for_timeout(600)
+    check("Use the default switches it back on", page.locator("section.card", has=page.locator("h2:text-is('Price estimates')")).get_by_label("Show price estimates in the Shop tab").is_checked())
+    page.get_by_role("button", name="Admin", exact=True).click()
+    page.get_by_role("button", name="Server settings", exact=True).click()
+    page.get_by_label("Show price estimates in the Shop tab by default", exact=False).wait_for()
+    check("the admin sets the default for everyone", page.get_by_label("Show price estimates in the Shop tab by default", exact=False).count() == 1)
+    list_tab("Manage list")
     page.locator(".past", has_text="Milk").first.get_by_role("button", name="Add to list").click()
     page.wait_for_timeout(600)
     check("default note is pre-filled when the item is added again", page.locator(".entry.manage", has_text="Milk").first.inner_text().count("lactose free") == 1)

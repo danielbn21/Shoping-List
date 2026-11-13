@@ -1,0 +1,14 @@
+{
+  "lang-he": {
+    "version": "1.1.0",
+    "sha256": "7a8634bd3ae50d665c613960aa2bc90f679408426944a92126bc6836f146ffa8"
+  },
+  "price-compare": {
+    "version": "1.3.0",
+    "sha256": "0ac2ab0a774f3125409ae8045aad61102690456870db74056ac56b4cdf5e2761"
+  },
+  "receipt-ocr": {
+    "version": "1.0.1",
+    "sha256": "e19297cc7573c05f8c7ad4846fce7b67d61ea6b8a4e7d4c8935512b7ee4d80a8"
+  }
+}

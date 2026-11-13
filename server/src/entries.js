@@ -1,6 +1,7 @@
 // Put an item on a list: merge into the open entry if there is one, otherwise append at the end.
 export function addToList(db, { listId, item, quantity, note = null, userId }) {
   const now = Date.now();
+  db.prepare('INSERT OR IGNORE INTO list_items(list_id, item_id, added_at) VALUES (?, ?, ?)').run(listId, item.id, now);
   if (item.archived) db.prepare('UPDATE items SET archived = 0 WHERE id = ?').run(item.id);
   const ex = db.prepare("SELECT id FROM list_entries WHERE list_id = ? AND item_id = ? AND deleted = 0 AND state = 'open'").get(listId, item.id);
   if (ex) {

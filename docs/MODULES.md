@@ -111,6 +111,10 @@ English is built into the core. Every other interface language is a **language m
 
 Language modules are open to every signed-in user while enabled (no grant, no personal switch). Settings > Language lists English plus the enabled language modules; a user whose language module is missing or switched off sees English and keeps their saved choice. Content direction does not depend on the interface language: user text (items, lists, stores, categories, households, notes) uses `dir="auto"`, so Hebrew content is right-to-left in an English interface too.
 
+## Versions: change a module, bump its version
+
+An installed module is only replaced when the bundled (or uploaded) version is **higher**, and browsers cache a module's files by version. So **any change to a module's files needs a new version** in its `manifest.json`, including a translation file. `modules/versions.lock.json` records each module's version and a fingerprint of what it ships; the test `server/test/modulelock.test.js` fails when files changed under an unchanged version. After bumping the version run `node scripts/module-lock.mjs` to record it.
+
 ## Lifecycle and safety
 
 - **Startup:** removals marked earlier are applied; bundled modules are installed if missing (or upgraded when a newer bundled version exists and the installed copy is also a bundled one); enabled modules load in dependency order, each with its own migrations.

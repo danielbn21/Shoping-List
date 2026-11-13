@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-modules
+modules/*/web.js
+modules/*/web.css
+data
+data.failed-*
+backups
+.env
+.fake
+*.log

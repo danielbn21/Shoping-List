@@ -121,6 +121,7 @@ export default async function adminRoutes(app) {
       setSetting(db, 'session_days', n);
     }
     if (b.allow_user_households !== undefined) setSetting(db, 'allow_user_households', !!b.allow_user_households);
+    if (b.estimates_default !== undefined) setSetting(db, 'estimates_default', !!b.estimates_default);
     if (b.min_password_length !== undefined) {
       const n = Number(b.min_password_length);
       if (!Number.isInteger(n) || n < 6 || n > 64) return bad(reply, 'invalid_value');

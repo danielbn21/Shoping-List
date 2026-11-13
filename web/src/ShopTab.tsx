@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from './api';
 import { t, errText } from './i18n';
+import { effectiveCurrency, formatMoney } from './money';
 import { catName, fmt } from './util';
 import type { Detail, Entry, Me } from './types';
 
@@ -20,6 +22,18 @@ export default function ShopTab({ data, me, onToggle, onFinish }: Props) {
   const [photo, setPhoto] = useState<File | null>(null);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+
+  // Price estimates (when switched on in Settings): the last price paid for each item at the chosen store, or anywhere without one.
+  const [est, setEst] = useState<Record<number, { unitPrice: number; source: string }>>({});
+  const currency = effectiveCurrency(me);
+  const itemSig = entries.map((e) => e.itemId).join();
+  useEffect(() => {
+    if (!me.estimatesEnabled) { setEst({}); return; }
+    let stale = false;
+    api<{ prices: Record<number, { unitPrice: number; source: string }> }>(`/lists/${list.id}/estimates?currency=${currency}${storeId ? `&storeId=${storeId}` : ''}`)
+      .then((r) => { if (!stale) setEst(r.prices); }).catch(() => { if (!stale) setEst({}); });
+    return () => { stale = true; };
+  }, [me.estimatesEnabled, list.id, storeId, itemSig, currency]);
 
   const store = stores.find((s) => String(s.id) === storeId);
   const q = search.trim().toLowerCase();
@@ -64,6 +78,7 @@ export default function ShopTab({ data, me, onToggle, onFinish }: Props) {
         {e.note && <span className="muted" dir="auto" style={{ display: 'block' }}>{e.note}</span>}
         {me.showAddedBy && e.addedByName && <span className="muted" style={{ display: 'block' }}>{t('addedBy', { name: e.addedByName })}</span>}
       </span>
+      {me.estimatesEnabled && est[e.itemId] && <span className="est" dir="ltr" title={t('estimateTitle')}>≈ {formatMoney(est[e.itemId].unitPrice * e.quantity, currency)}</span>}
       {(e.quantity !== 1 || e.unit) && <span className="qtybadge">×{fmt(e.quantity)}{e.unit ? ` ${e.unit}` : ''}</span>}
     </button>
   );
@@ -86,6 +101,12 @@ export default function ShopTab({ data, me, onToggle, onFinish }: Props) {
       {msg && <p className="ok" role="status">{msg}</p>}
       {error && <p className="error" role="alert">{error}</p>}
 
+      {me.estimatesEnabled && entries.length > 0 && Object.keys(est).length > 0 && (() => {
+        const on = entries;
+        const priced = on.filter((e) => est[e.itemId]);
+        const total = priced.reduce((n, e) => n + est[e.itemId].unitPrice * e.quantity, 0);
+        return <p className="est-total" role="status">{t('estimateTotal', { total: formatMoney(total, currency) })} <span className="muted" style={{ fontWeight: 400 }}>· {t('estimateCoverage', { priced: priced.length, n: on.length })}</span></p>;
+      })()}
       {entries.length === 0 && <p className="muted">{t('emptyShop')}</p>}
       {entries.length > 0 && q && !groups.length && !shownCart.length && <p className="muted">{t('noMatches', { q: search.trim() })}</p>}
       {open.length === 0 && cart.length > 0 && !q && <p className="muted">{t('allChecked')}</p>}
