@@ -12,7 +12,7 @@ A self-hosted, multi-user shopping list for households. Share lists with the peo
 **Shopping**
 - **Shop** mode: search, tap to move an item to the cart, undo, and **Finish trip**. Pick a store to see the list in that supermarket's walking order.
 - **Manage list** mode: add items with quantity, category and note; drag to reorder or to drop an item into another category; every section can be collapsed and reordered in Settings.
-- **Past items** are kept per list, so a list for one supermarket never fills up with items from another. Tick several and remove them in one go. The item itself is shared by the household, so details and price matches are never entered twice.
+- **Past items** are kept per list, so a list for one supermarket never fills up with items from another. Items from a CSV import or a receipt join the list they were added to. Tick several and remove them in one go. The item itself is shared by the household, so details and price matches are never entered twice.
 - Typing an item name suggests your own past items and, when price comparison is on, products from the supermarkets you compare.
 - **Duplicate prevention** in English and Hebrew: "Tomatoes" reuses "tomato", and a near-miss such as "Rise" for "Rice" asks you first.
 
@@ -20,7 +20,7 @@ A self-hosted, multi-user shopping list for households. Share lists with the peo
 - Finish a trip with an optional total and a **receipt photo**. Receipts are read in the background (local OCR in the container, English and Hebrew; an optional cloud engine with your own API key) and you review every line before anything is saved.
 - **List history** shows every trip: correct quantities, prices and totals, add or remove photos, and restore items to the list.
 - **Price estimates** in the Shop tab show what each item cost last time and an estimated total, from your own receipts. Each user can switch this off in Settings; the admin sets the default.
-- **CSV** export of purchases, and backup, restore or move of the item list between lists and households.
+- **CSV** export of purchases, and backup, restore or move of the item list between lists and households. Every item you import becomes one of that list's past items, so you can pick it right away.
 
 **Price comparison (module)**
 - Compare your list across the branches of twelve Israeli supermarket chains, using the price files the chains publish. Choose cities and branches, see a total and how many items are priced for each branch, and see which items still need matching.
