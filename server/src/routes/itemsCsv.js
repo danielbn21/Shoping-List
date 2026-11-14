@@ -1,6 +1,6 @@
 import { audit, cleanName } from '../util.js';
 import { makeAccess } from '../access.js';
-import { addToList } from '../entries.js';
+import { addToList, rememberForList } from '../entries.js';
 import { normalize, findMatches, isHebrew } from '../match.js';
 import { parseCsv, toCsv, unprotect } from '../csv.js';
 
@@ -118,6 +118,7 @@ export default async function itemsCsvRoutes(app) {
             if (sets.length) db.prepare(`UPDATE items SET ${sets.join(', ')} WHERE id = ?`).run(...vals, item.id);
             item = db.prepare('SELECT * FROM items WHERE id = ?').get(item.id);
           }
+          rememberForList(db, acc.list.id, item.id); // every imported item becomes one of this list's past items, whatever its quantity
           if (row.quantity > 0) addToList(db, { listId: acc.list.id, item, quantity: row.quantity, userId: req.user.id });
         }
         audit(db, req.user.id, 'items.imported', String(acc.list.id), summary);

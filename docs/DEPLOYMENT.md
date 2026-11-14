@@ -34,9 +34,15 @@ The server trusts `X-Forwarded-*` headers, so cookies are marked `Secure` automa
 
 Receipt reading, price comparison and the Hebrew language are modules that ship with the image and start switched on. In **Admin → Modules** an admin can install a module from a zip (the screen shows its name, version and a hash to confirm), switch it on or off, choose who may use it, roll back or uninstall. Changes take effect after the admin presses **Restart server**; Docker (`restart: unless-stopped`, already in the compose file) starts the server again. Installed modules and their data live in `data/modules/`. An uploaded module runs inside the server with full access to its own data, so install only modules you trust.
 
+## Receipt reading and privacy
+
+- **Local (default):** Tesseract inside the container, English and Hebrew. Private and free; accuracy depends on the photo (flat, well-lit, full-frame receipts work best).
+- **Cloud (optional, per user):** in Settings a user chooses a provider (Anthropic, OpenAI or Google) and pastes their own API key. The key is encrypted at rest (`data/secret.key`) and never shown again. With the engine on *Automatic*, cloud is used only when the user has saved a key; *Local only* keeps photos on the server. When cloud is used, the receipt photo is sent to that provider.
+- The admin can switch receipt scanning off entirely (Server settings). Receipt photos live in `data/receipts/` and are deleted with their household.
+
 ## Upgrading
 
-Recommended: **`./update.sh`** (pulls from GitHub, builds first, backs up `data/`, starts the new version, checks it, and rolls back by itself if it fails). Also `./update.sh --tag v1.4.4` (any tag), `--rollback` and `--dry-run`. By hand:
+Recommended: **`./update.sh`** (pulls from GitHub, builds first, backs up `data/`, starts the new version, checks it, and rolls back by itself if it fails). Also `./update.sh --tag v1.4.5` (any tag), `--rollback` and `--dry-run`. By hand:
 
 1. Replace the project folder with the new zip but keep your `data/` folder.
 2. **Keep your port setting:** a new `docker-compose.yml` overwrites the old one, so put your port in a `.env` file next to it (`HOST_PORT=3010`) and it survives upgrades.

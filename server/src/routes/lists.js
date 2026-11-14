@@ -1,6 +1,7 @@
 import { getSetting, audit } from '../util.js';
 import { normalize, findMatches, isHebrew } from '../match.js';
 import { makeAccess } from '../access.js';
+import { rememberForList } from '../entries.js';
 
 const bad = (reply, error, code = 400) => reply.code(code).send({ error });
 const cleanText = (s, max) => (typeof s === 'string' ? s.trim().replace(/\s+/g, ' ').slice(0, max) : '');
@@ -196,7 +197,7 @@ export default async function listRoutes(app) {
       await chosen();
       return { entryId: existing.id, itemId: item.id, merged: true };
     }
-    db.prepare('INSERT OR IGNORE INTO list_items(list_id, item_id, added_at) VALUES (?, ?, ?)').run(acc.list.id, item.id, now);
+    rememberForList(db, acc.list.id, item.id, now);
     const entryId = Number(db.prepare(`INSERT INTO list_entries(list_id, item_id, quantity, unit, note, added_by, added_at, updated_at, position)
       VALUES (?,?,?,?,?,?,?,?, (SELECT COALESCE(MAX(position), 0) + 1 FROM list_entries WHERE list_id = ?))`)
       .run(acc.list.id, item.id, qty, unit ?? item.default_unit, note ?? item.default_note ?? null, req.user.id, now, now, acc.list.id).lastInsertRowid);

@@ -1,7 +1,15 @@
+// RULE (1.4.5): a list's "past items" are the rows of list_items. Every code path that puts an item on a list, records a
+// purchase for it on a list, or imports it into a list MUST call rememberForList(). Writers today: addToList (below),
+// POST /api/lists/:id/entries, CSV import (every created/updated row, whatever its quantity) and receipt-review apply.
+// Any new writer (e.g. unplanned trips in 1.5.0) must follow it too.
+export function rememberForList(db, listId, itemId, at = Date.now()) {
+  db.prepare('INSERT OR IGNORE INTO list_items(list_id, item_id, added_at) VALUES (?, ?, ?)').run(listId, itemId, at);
+}
+
 // Put an item on a list: merge into the open entry if there is one, otherwise append at the end.
 export function addToList(db, { listId, item, quantity, note = null, userId }) {
   const now = Date.now();
-  db.prepare('INSERT OR IGNORE INTO list_items(list_id, item_id, added_at) VALUES (?, ?, ?)').run(listId, item.id, now);
+  rememberForList(db, listId, item.id, now);
   if (item.archived) db.prepare('UPDATE items SET archived = 0 WHERE id = ?').run(item.id);
   const ex = db.prepare("SELECT id FROM list_entries WHERE list_id = ? AND item_id = ? AND deleted = 0 AND state = 'open'").get(listId, item.id);
   if (ex) {

@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { audit, cleanName, getSetting } from '../util.js';
 import { makeAccess } from '../access.js';
-import { addToList } from '../entries.js';
+import { addToList, rememberForList } from '../entries.js';
 import { normalize, findReceiptMatch, isHebrew, reverseHebrewRuns } from '../match.js';
 import { toCsv } from '../csv.js';
 
@@ -261,6 +261,7 @@ export default async function historyRoutes(app) {
             if (item.archived) db.prepare('UPDATE items SET archived = 0 WHERE id = ?').run(item.id);
             db.prepare(`INSERT INTO purchase_events(household_id, item_id, trip_id, list_id, quantity, unit, store_id, buyer_id, purchased_at, unit_price, line_total)
               VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(trip.household_id, item.id, trip.id, trip.list_id, qty, null, trip.store_id, ra.receipt.uploaded_by ?? req.user.id, trip.finished_at, unit, line);
+            if (trip.list_id) rememberForList(db, trip.list_id, item.id, trip.finished_at ?? Date.now());
             itemId = item.id; applied++;
           }
           if (unit !== null) db.prepare('UPDATE items SET price = ? WHERE id = ?').run(unit, itemId); // "last paid"
