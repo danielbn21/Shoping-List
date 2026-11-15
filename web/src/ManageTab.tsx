@@ -685,7 +685,7 @@ function ListSettings({ data, reload, onDeleted }: { data: Detail; reload: () =>
 /* ---------------- CSV: back up the item bank, restore it, or carry items to another list or household ---------------- */
 
 type ImportRow = { line: number; name: string; action: string; matchedName: string | null; similarTo: string | null; category: string; newCategory: boolean; price: number | null; quantity: number; warnings: string[] };
-type ImportPlan = { applied: boolean; summary: { create: number; update: number; skip: number; duplicateInFile: number; similar: number; addToList: number; newCategories: number }; rows: ImportRow[] };
+type ImportPlan = { applied: boolean; summary: { create: number; update: number; skip: number; duplicateInFile: number; similar: number; addToList: number; pastItems: number; newCategories: number }; rows: ImportRow[] };
 
 function CsvCard({ data, reload }: { data: Detail; reload: () => Promise<void> }) {
   const [csv, setCsv] = useState<string | null>(null);
@@ -733,6 +733,7 @@ function CsvCard({ data, reload }: { data: Detail; reload: () => Promise<void> }
       {plan && !plan.applied && s && (
         <div className="stack-sm">
           <p><strong>{t('csvSummary', { create: s.create, update: s.update, addToList: s.addToList, skip: s.skip + s.duplicateInFile })}</strong></p>
+          {s.pastItems > 0 && <p className="muted">{t('csvPast', { n: s.pastItems })}</p>}
           {s.similar > 0 && <p className="muted">{t('csvSimilar', { n: s.similar })}</p>}
           <div className="scroll-x">
             <table className="log">

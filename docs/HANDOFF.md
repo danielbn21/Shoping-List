@@ -1,16 +1,16 @@
-# Shopping List PWA: handoff v4 (14 Nov 2026)
+# Shopping List PWA: handoff v5 (15 Nov 2026)
 
-Written for a fresh chat. It replaces `Shopping_List_PWA_handoff_briefing.md`, `…_v2.md` and the long `docs/HANDOFF.md` inside the zip (put this file there as `docs/HANDOFF.md`). **1.4.5 is done (section 5). Next: 1.5.0 (section 6).** Give the new chat this file and `shoplist-1_4_5.zip`.
+Written for a fresh chat. It replaces `Shopping_List_PWA_handoff_briefing.md`, `…_v2.md` and the long `docs/HANDOFF.md` inside the zip (put this file there as `docs/HANDOFF.md`). **1.4.5 and 1.5.0 are done (sections 5 and 6). Next: the parked store-versus-category issue, then the backlog.** Give the new chat this file and `shoplist-1_4_5.zip`.
 
 ---
 
 ## 0. Start here
 
-**Give the new chat:** this file and `shoplist-1_4_5.zip` (the code). Optional: the three module zips (`price-compare-1.3.0`, `receipt-ocr-1.0.1`, `lang-he-1.1.0`), which are already inside the project under `modules/`.
+**Give the new chat:** this file and `shoplist-1_5_0.zip` (the code). Optional: the three module zips (`price-compare-1.3.0`, `receipt-ocr-1.0.1`, `lang-he-1.1.1`), which are already inside the project under `modules/`.
 
 **Owner's working style.** Settles a plan before code ("review before pursuing"); dictates, so expect typos; wants honesty about what is verified; **asks answered one question at a time** (ask at most one); likes short descriptive bullet lists; checks details and will catch sloppy ones (see the lesson in section 7). Wants everything deterministic and local, no cloud AI at runtime. English interface first; Hebrew and right-to-left stay supported for *content*.
 
-**Verified at 1.4.5 (sandbox):** 119 backend tests, 129 browser checks (Playwright, real Tesseract), `tests/test-update.sh` 25 checks, database upgrades 1.2.1→current. **Never verified:** a real Docker build (the image's module-build stage was only simulated by hand), the live retailer portals (the sandbox cannot reach them), matching quality on the owner's real item names, real phones.
+**Verified at 1.5.0 (sandbox):** 126 backend tests, 134 browser checks (Playwright, real Tesseract), `tests/test-update.sh` 25 checks, database upgrades 1.2.1→current. **Never verified:** a real Docker build (the image's module-build stage was only simulated by hand), the live retailer portals (the sandbox cannot reach them), matching quality on the owner's real item names, real phones.
 
 **Commands** (repo root; run `npm ci` without `--silent` and check that `node_modules` exists):
 ```
@@ -66,7 +66,7 @@ Optional features are **modules** under `modules/<id>/` (each with `manifest.jso
 
 ## 3. Releases so far (only what matters now)
 
-1.0–1.2: households, lists, history with corrections, OCR, CSV, portals directory. **1.3.0** module system. **1.3.1** collapsible/orderable Manage sections, language only in Settings, Hebrew as a module, `dir="auto"` for content. **1.4.0** prices and matching. **1.4.1** Configure per module, **Compare now** with progress status, red coverage, items to match once per chain, automatic matching at other chains. **1.4.2** Add-items autocomplete "From the stores". **1.4.3** per-list past items (migration 9), multi-select removal, price estimates with per-user switch and admin default. **1.4.4** module version housekeeping and the version guard.
+1.0–1.2: households, lists, history with corrections, OCR, CSV, portals directory. **1.3.0** module system. **1.3.1** collapsible/orderable Manage sections, language only in Settings, Hebrew as a module, `dir="auto"` for content. **1.4.0** prices and matching. **1.4.1** Configure per module, **Compare now** with progress status, red coverage, items to match once per chain, automatic matching at other chains. **1.4.2** Add-items autocomplete "From the stores". **1.4.3** per-list past items (migration 9), multi-select removal, price estimates with per-user switch and admin default. **1.4.4** module version housekeeping and the version guard. **1.4.5** past-items linking fix: CSV import links every created/updated item to the list it is imported into (any quantity), receipt review links items to the trip's list, helper `rememberForList`. **1.5.0** trips by hand (add, edit date and store, delete), import preview count, `lang-he` 1.1.1; also fixed: a trip's store edit now moves its purchase lines too.
 
 ---
 
@@ -87,17 +87,21 @@ No data was lost: the items, categories, notes, prices and matches are all still
 
 Implemented as decided: `rememberForList(db, listId, itemId, at)` in `server/src/entries.js` (rule documented there) is used by `addToList`, the entry insert in `routes/lists.js`, CSV import (every `create`/`update` row, entry only when quantity > 0) and receipt-review apply (when `trip.list_id` is set). No migration; migration 9 unchanged; no cross-list repair (re-import the CSV into the intended list). Tests: `server/test/pastitems145.test.js` (7; they fail on 1.4.4). E2E: a quantity-0 "Sesame" row must appear under past items, not on the list. **Rule for 1.5.0:** every path that creates a purchase must link its item to its list.
 
-**Documentation split (owner's request, same release):** `README.md` is now a short GitHub page (features, quick start, using the app, links); `docs/DEPLOYMENT.md` (run, HTTPS, accounts, modules and restarts, receipt privacy, upgrading, published image, troubleshooting), `docs/DEVELOPMENT.md` (run locally, layout, past-items rule, duplicate prevention, CSV notes, releases) and `docs/MODULES.md`. The per-version notes and the old roadmap are not in the README any more: section 3 is the release history. **1.5.0 decision:** deleting a trip leaves the items' saved price as it is.\n\n**Moved to the next version (owner's request):** in the CSV import preview, show "N items will be added to this list's past items" (add `pastItems` to the preview `summary`, one line in the UI, English string in `web/src/i18n.ts`, Hebrew in `modules/lang-he/strings.json`, bump `lang-he` to 1.1.1 and run `node scripts/module-lock.mjs`).
+**Documentation split (owner's request, same release):** `README.md` is now a short GitHub page (features, quick start, using the app, links); `docs/DEPLOYMENT.md` (run, HTTPS, accounts, modules and restarts, receipt privacy, upgrading, published image, troubleshooting), `docs/DEVELOPMENT.md` (run locally, layout, past-items rule, duplicate prevention, CSV notes, releases) and `docs/MODULES.md`. The per-version notes and the old roadmap are not in the README any more: section 3 is the release history. **1.5.0 decision:** deleting a trip leaves the items' saved price as it is.\n\n
+
+(The import preview count that was moved out of 1.4.5 shipped in 1.5.0.)
 
 ---
 
-## 6. After that
+## 6. DONE: version 1.5.0 (core; lang-he 1.1.1; no migration)
 
-**1.5.0 trips (decided).** In a list's History:
-- **Add a trip** (button at the top; Owners and Editors): store (household stores), date/time (default now), total; optional lines (items with quantity and price; new items are created, existing ones reused) and an optional receipt photo (the existing review screen reads it). The trip belongs to that list; its items join the list's past items (`list_items`); it counts in history, CSV export, price estimates and the price-compare "last paid" receipt prices.
-- **Trip edit panel** (like the per-line ✎): change total, store, date. "Restore to list" stays as it is.
-- **Delete a whole trip** (with a confirmation that says how many lines and receipt photos go): deletes the trip, its purchase lines, its receipt photos and files. **Do not restore items to the list.** Careful: `purchase_events.trip_id` is `ON DELETE SET NULL`, so lines must be deleted explicitly or they keep counting in history/CSV/compare/estimates. Owners and Editors; audit-logged. Existing routes: `GET/PATCH /api/trips/:id`, `PATCH/DELETE /api/purchases/:id`, restore, receipts.
-- Tests: add, edit, delete, permissions, cleanup (nothing left in history/CSV/`lastPaid`/estimates), receipt files removed. English strings in core, Hebrew in `lang-he` (bump + lock).
+Implemented in `server/src/routes/history.js` and `web/src/HistoryTab.tsx`:
+- `POST /api/lists/:id/trips` (Owner/Editor): store, `at` (ms or date string, not before 2000, not more than a day ahead), total, currency, lines (`name` or `itemId`, `quantity`, `unitPrice` or `lineTotal`; max 200). A trip needs a total or at least one line (`empty_trip`). Names follow the receipt-apply rules (exact normalised name reuses the household item, otherwise a new item; no "did you mean"). Every item goes through `rememberForList`. The item's saved price is set from the line only when no newer priced purchase exists. Audit `trip.added`. UI: "Add a trip" form at the top of List history (date, store, total, rows, optional receipt photo uploaded afterwards through the existing route).
+- `PATCH /api/trips/:id` now also takes `finishedAt`, and **a store or date change updates the trip's purchase lines too** (before 1.5.0 only the trip row changed, so estimates, "last paid" and the CSV kept the old store). Same permission as before (anyone who can see the list). UI: "Edit date and store" in the trip.
+- `DELETE /api/trips/:id` (Owner/Editor; for a trip whose list was deleted, the household owner): deletes the purchase lines explicitly, the receipt rows and files, then the trip; items are not restored to the list and stay past items; audit `trip.deleted`. The saved item price is deliberately left as it is (owner's decision), so estimates fall back to it. UI: "Delete this trip" with a confirmation naming the lines and photos.
+- CSV import preview: `summary.pastItems` and the line "N will be added to this list's past items." (`csvPast`).
+- Strings: English in `web/src/i18n.ts`, Hebrew in `modules/lang-he/strings.json` (module 1.1.1, lock refreshed). New error codes: `invalid_date`, `empty_trip`, `too_many_lines`.
+- Tests: `server/test/trips.test.js` (6), a preview test in `pastitems145.test.js`; e2e covers the preview line, add, edit date and delete. Not covered by e2e: the Hebrew layout of the new form and a store edit in the browser.
 
 **Parked by the owner:** the Shop-tab store selector ("By category" or a store) versus store names appearing as item categories somewhere; the owner will describe it after testing. Do not change anything for it until they do; ask for the exact place and a screenshot.
 

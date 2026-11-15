@@ -79,10 +79,12 @@ export default async function itemsCsvRoutes(app) {
     });
 
     const count = (a) => rows.filter((r) => r.action === a).length;
+    const linked = new Set(db.prepare('SELECT item_id FROM list_items WHERE list_id = ?').all(acc.list.id).map((r) => r.item_id));
     const summary = {
       create: count('create'), update: count('update'), skip: count('skip'), duplicateInFile: count('duplicate_in_file'),
       similar: rows.filter((r) => r.similarTo && r.action === 'create').length,
       addToList: rows.filter((r) => ['create', 'update'].includes(r.action) && r.quantity > 0).length,
+      pastItems: rows.filter((r) => r.action === 'create' || (r.action === 'update' && !linked.has(r.item.id))).length, // items that become new past items of this list
       newCategories: [...new Set(rows.filter((r) => r.newCategory).map((r) => r.category.trim()))].length,
     };
 

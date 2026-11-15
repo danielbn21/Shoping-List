@@ -128,3 +128,15 @@ test('receipt review: a new item and an existing item bought on a trip of list A
   assert.deepEqual(pb, ['Tomatoes']);                                          // B gained nothing new
   await t.app.close();
 });
+
+test('the import preview counts how many items will become new past items of this list', async () => {
+  const t = await boot();
+  const a = await t.mkList('Food'), b = await t.mkList('Hardware');
+  await t.call('POST', `/api/lists/${b}/entries`, { name: 'Milk', quantity: 1 }, t.admin.cookie);   // known to the household, past item of B only
+  await t.imp(a, 'name,quantity\nRice,0\n', { apply: true });                                       // already a past item of A
+  const r = await t.imp(a, 'name,quantity\nRice,0\nMilk,0\nTahini,0\nTahini,0\n');
+  assert.equal(r.body.applied, false);
+  assert.equal(r.body.summary.pastItems, 2);                                                         // Milk (new to A) and Tahini; Rice already is, the repeated Tahini is one
+  assert.deepEqual(await t.past(a), ['Rice']);                                                       // the preview changed nothing
+  await t.app.close();
+});

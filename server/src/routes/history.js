@@ -9,6 +9,11 @@ import { toCsv } from '../csv.js';
 
 const bad = (reply, error, code = 400) => reply.code(code).send({ error });
 const round2 = (n) => Math.round(n * 100) / 100;
+// A trip date from the web app: milliseconds, or a date string. Not before 2000, not more than a day ahead.
+const tripTime = (v) => {
+  const n = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() ? Date.parse(v) : NaN);
+  return Number.isFinite(n) && n > 9.46e11 && n < Date.now() + 864e5 ? Math.round(n) : NaN;
+};
 const money = (v) => { if (v === null || v === undefined || v === '') return null; const n = Number(v); return Number.isFinite(n) && n >= 0 && n < 1e8 ? n : NaN; };
 
 function sniff(buf) {
@@ -21,7 +26,7 @@ function sniff(buf) {
 export default async function historyRoutes(app) {
   const db = app.db;
   const pre = { preHandler: app.auth() };
-  const { householdRole, listAccess } = makeAccess(db);
+  const { householdRole, listAccess, canEdit } = makeAccess(db);
 
   // Anyone who can see a list can view, correct and restore its history (the person at the checkout is often a "shopper").
   function tripAccess(user, tripId) {
@@ -91,15 +96,107 @@ export default async function historyRoutes(app) {
     const ta = tripAccess(req.user, Number(req.params.id));
     if (!ta) return bad(reply, 'not_found', 404);
     const b = req.body || {};
-    let { total, store_id, currency } = ta.trip;
+    let { total, store_id, currency, finished_at } = ta.trip;
     if (b.total !== undefined) { total = money(b.total); if (Number.isNaN(total)) return bad(reply, 'invalid_total'); }
     if (b.storeId !== undefined) {
       store_id = b.storeId ? Number(b.storeId) : null;
       if (store_id && !db.prepare('SELECT 1 FROM stores WHERE id = ? AND household_id = ?').get(store_id, ta.trip.household_id)) return bad(reply, 'store_not_found');
     }
     if (b.currency !== undefined) { if (b.currency !== null && !/^[A-Z]{3}$/.test(b.currency)) return bad(reply, 'invalid_value'); currency = b.currency; }
-    db.prepare('UPDATE trips SET total = ?, store_id = ?, currency = ? WHERE id = ?').run(total, store_id, currency, ta.trip.id);
+    if (b.finishedAt !== undefined) { finished_at = tripTime(b.finishedAt); if (Number.isNaN(finished_at)) return bad(reply, 'invalid_date'); }
+    db.transaction(() => {
+      db.prepare('UPDATE trips SET total = ?, store_id = ?, currency = ?, finished_at = ? WHERE id = ?').run(total, store_id, currency, finished_at, ta.trip.id);
+      // The lines carry their own store and time (price estimates, "last paid" and the CSV read them), so they follow the trip.
+      db.prepare('UPDATE purchase_events SET store_id = ?, purchased_at = ? WHERE trip_id = ?').run(store_id, finished_at, ta.trip.id);
+    })();
     return { ok: true };
+  });
+
+  // ---------- add a trip by hand (a shop that was not run through the Shop tab) ----------
+  // Same rules as the receipt review: an exact normalised name reuses the household item, anything else creates one; every item joins this list's past items.
+  app.post('/api/lists/:id/trips', pre, async (req, reply) => {
+    const acc = listAccess(req.user, Number(req.params.id));
+    if (!acc) return bad(reply, 'not_found', 404);
+    if (!canEdit(acc)) return bad(reply, 'forbidden', 403);
+    const hid = acc.list.household_id, b = req.body || {};
+    let storeId = null;
+    if (b.storeId) {
+      storeId = Number(b.storeId);
+      if (!db.prepare('SELECT 1 FROM stores WHERE id = ? AND household_id = ?').get(storeId, hid)) return bad(reply, 'store_not_found');
+    }
+    const at = b.at === undefined || b.at === null || b.at === '' ? Date.now() : tripTime(b.at);
+    if (Number.isNaN(at)) return bad(reply, 'invalid_date');
+    const total = money(b.total);
+    if (Number.isNaN(total)) return bad(reply, 'invalid_total');
+    const currency = /^[A-Z]{3}$/.test(b.currency ?? '') ? b.currency : (req.user.currency ?? null);
+    const input = Array.isArray(b.lines) ? b.lines : [];
+    if (input.length > 200) return bad(reply, 'too_many_lines');
+    const lines = [];
+    for (const l of input) {
+      const name = cleanName(l?.name ?? '').slice(0, 100);
+      if (!name && !l?.itemId) continue;                       // an empty row in the form
+      const qty = l.quantity === undefined || l.quantity === '' ? 1 : Number(l.quantity);
+      if (!(qty > 0 && qty < 10000)) return bad(reply, 'invalid_quantity');
+      let unit = money(l.unitPrice), line = money(l.lineTotal);
+      if (Number.isNaN(unit) || Number.isNaN(line)) return bad(reply, 'invalid_price');
+      if (line !== null) unit = round2(line / qty); else if (unit !== null) line = round2(unit * qty);
+      lines.push({ name, qty, unit, line, itemId: l.itemId ? Number(l.itemId) : null });
+    }
+    if (!lines.length && total === null) return bad(reply, 'empty_trip');
+    const tripId = db.transaction(() => {
+      const id = Number(db.prepare('INSERT INTO trips(household_id, list_id, store_id, shopper_id, started_at, finished_at, total, currency) VALUES (?,?,?,?,?,?,?,?)')
+        .run(hid, acc.list.id, storeId, req.user.id, at, at, total, currency).lastInsertRowid);
+      for (const l of lines) {
+        let item = l.itemId ? db.prepare('SELECT * FROM items WHERE id = ? AND household_id = ?').get(l.itemId, hid) : null;
+        if (!item) {
+          const norm = normalize(l.name);
+          if (!norm) continue;
+          item = db.prepare('SELECT * FROM items WHERE household_id = ? AND name_norm = ?').get(hid, norm);
+          if (!item) {
+            const iid = Number(db.prepare('INSERT INTO items(household_id, name, name_norm, language, created_at) VALUES (?,?,?,?,?)')
+              .run(hid, l.name, norm, isHebrew(l.name) ? 'he' : 'en', Date.now()).lastInsertRowid);
+            item = db.prepare('SELECT * FROM items WHERE id = ?').get(iid);
+          }
+        }
+        if (item.archived) db.prepare('UPDATE items SET archived = 0 WHERE id = ?').run(item.id);
+        db.prepare(`INSERT INTO purchase_events(household_id, item_id, trip_id, list_id, quantity, unit, store_id, buyer_id, purchased_at, unit_price, line_total)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(hid, item.id, id, acc.list.id, l.qty, null, storeId, req.user.id, at, l.unit, l.line);
+        rememberForList(db, acc.list.id, item.id, at);
+        // the item's saved price is its "last paid" price: a trip entered for an older date must not overwrite a newer one
+        if (l.unit !== null && !db.prepare('SELECT 1 FROM purchase_events WHERE item_id = ? AND trip_id != ? AND unit_price IS NOT NULL AND purchased_at > ?').get(item.id, id, at)) {
+          db.prepare('UPDATE items SET price = ? WHERE id = ?').run(l.unit, item.id);
+        }
+      }
+      audit(db, req.user.id, 'trip.added', String(acc.list.id), { tripId: id, lines: lines.length });
+      return id;
+    })();
+    return { tripId };
+  });
+
+  // ---------- delete a whole trip ----------
+  // Its purchase lines are deleted explicitly (purchase_events.trip_id is ON DELETE SET NULL, so they would otherwise keep counting in
+  // history, CSV, estimates and "last paid"), then its receipt photos and files, then the trip. Items are NOT put back on the list.
+  const tripCounts = (id) => ({
+    lines: db.prepare('SELECT COUNT(*) c FROM purchase_events WHERE trip_id = ?').get(id).c,
+    receipts: db.prepare('SELECT COUNT(*) c FROM receipts WHERE trip_id = ?').get(id).c,
+  });
+  const mayDeleteTrip = (user, ta) => ta.trip.list_id
+    ? canEdit(listAccess(user, ta.trip.list_id))
+    : householdRole(user.id, ta.trip.household_id) === 'owner';
+  app.delete('/api/trips/:id', pre, async (req, reply) => {
+    const ta = tripAccess(req.user, Number(req.params.id));
+    if (!ta) return bad(reply, 'not_found', 404);
+    if (!mayDeleteTrip(req.user, ta)) return bad(reply, 'forbidden', 403);
+    const files = db.prepare('SELECT file FROM receipts WHERE trip_id = ?').all(ta.trip.id).map((r) => r.file);
+    const counts = tripCounts(ta.trip.id);
+    db.transaction(() => {
+      db.prepare('DELETE FROM purchase_events WHERE trip_id = ?').run(ta.trip.id);
+      db.prepare('DELETE FROM receipts WHERE trip_id = ?').run(ta.trip.id);
+      db.prepare('DELETE FROM trips WHERE id = ?').run(ta.trip.id);
+      audit(db, req.user.id, 'trip.deleted', String(ta.trip.list_id ?? ''), { tripId: ta.trip.id, ...counts });
+    })();
+    for (const f of files) fs.rmSync(path.join(app.dataDir, 'receipts', f), { force: true });
+    return { ok: true, ...counts };
   });
 
   // ---------- correct a purchased line ----------

@@ -18,7 +18,7 @@ A self-hosted, multi-user shopping list for households. Share lists with the peo
 
 **Prices, receipts and history**
 - Finish a trip with an optional total and a **receipt photo**. Receipts are read in the background (local OCR in the container, English and Hebrew; an optional cloud engine with your own API key) and you review every line before anything is saved.
-- **List history** shows every trip: correct quantities, prices and totals, add or remove photos, and restore items to the list.
+- **List history** shows every trip: correct quantities, prices and totals, add or remove photos, and restore items to the list. You can also **add a trip by hand** (a shop you did not run through the Shop tab), change a trip's date or store, or delete a whole trip with its photos.
 - **Price estimates** in the Shop tab show what each item cost last time and an estimated total, from your own receipts. Each user can switch this off in Settings; the admin sets the default.
 - **CSV** export of purchases, and backup, restore or move of the item list between lists and households. Every item you import becomes one of that list's past items, so you can pick it right away.
 
@@ -50,7 +50,7 @@ A phone can only install the app over HTTPS, so put it behind a reverse proxy. S
 1. **Create a household** (or join one with an invite link) and **create a list**.
 2. **Add items** in *Manage list*. Add categories as you go, and add stores if you want the Shop tab to follow a supermarket's walking order.
 3. **Shop**: tick items off in the *Shop* tab. Everyone on the list sees the changes. Tap **Finish trip** when you are done, optionally with the total and a receipt photo.
-4. **Check the history** in *List history*: correct a line, fix the total, or restore items for next week.
+4. **Check the history** in *List history*: correct a line, fix the total, add a trip you forgot to record, or restore items for next week.
 5. **Compare prices** (if the module is on): in the *Compare prices* tab choose where you shop, press **Compare now**, and match any items it lists. Then see which branch is cheapest for this list.
 
 Admins manage users, registration (invite-only by default, open or admin-only), email for password resets, the public address and modules under **Admin**. Without email, an admin can generate a one-time password for a user who forgot theirs.

@@ -8,6 +8,8 @@ import type { Detail, Me, TripDetailData, TripLine, TripSummary } from './types'
 
 const when = (ms: number) => new Date(ms).toLocaleString(dateLocale(), { dateStyle: 'medium', timeStyle: 'short' });
 const num = (s: string) => (s.trim() === '' ? null : Number(s));
+// <input type="datetime-local"> works in local time without a zone
+const localInput = (ms: number) => new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
 // Everyone on the list can look back, fix prices, attach receipts and restore past trips.
 export default function HistoryTab({ data, me, reload }: { data: Detail; me: Me; reload: () => Promise<void> }) {
@@ -48,6 +50,8 @@ export default function HistoryTab({ data, me, reload }: { data: Detail; me: Me;
         </div>
       </details>
 
+      {list.role !== 'viewer' && <AddTrip data={data} onAdded={async () => { await first(); await reload(); }} />}
+
       {trips.length === 0 && <p className="muted">{t('historyEmpty')}</p>}
       {trips.map((tr) => {
         const open = openId === tr.id;
@@ -64,7 +68,7 @@ export default function HistoryTab({ data, me, reload }: { data: Detail; me: Me;
               {tr.firstReceiptId && <img className="thumb" src={`/api/receipts/${tr.firstReceiptId}/image`} alt="" loading="lazy" />}
               <span className="trip-total">{formatMoney(shown, tr.currency ?? cur)}</span>
             </button>
-            {open && <TripDetail id={tr.id} me={me} listId={list.id} onChanged={async () => { await first(); await reload(); }} />}
+            {open && <TripDetail id={tr.id} me={me} listId={list.id} canEdit={list.role !== 'viewer'} onChanged={async () => { await first(); await reload(); }} />}
           </article>
         );
       })}
@@ -73,12 +77,15 @@ export default function HistoryTab({ data, me, reload }: { data: Detail; me: Me;
   );
 }
 
-function TripDetail({ id, me, listId, onChanged }: { id: number; me: Me; listId: number; onChanged: () => Promise<void> }) {
+function TripDetail({ id, me, listId, canEdit, onChanged }: { id: number; me: Me; listId: number; canEdit: boolean; onChanged: () => Promise<void> }) {
   const [d, setD] = useState<TripDetailData | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [editTotal, setEditTotal] = useState(false);
   const [totalStr, setTotalStr] = useState('');
   const [reviewId, setReviewId] = useState<number | null>(null);
+  const [editMeta, setEditMeta] = useState(false);
+  const [dateStr, setDateStr] = useState('');
+  const [storeStr, setStoreStr] = useState('');
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -149,7 +156,19 @@ function TripDetail({ id, me, listId, onChanged }: { id: number; me: Me; listId:
           )}
           {hasSum && d.trip.total !== null && Math.abs(sum - d.trip.total) > 0.005 && <div className="muted">{t('itemsAddUp', { v: formatMoney(sum, cur) })}</div>}
         </div>
+        {!editMeta && <button className="btn small" onClick={() => { setDateStr(localInput(d.trip.finishedAt)); setStoreStr(d.trip.storeId ? String(d.trip.storeId) : ''); setEditMeta(true); }}>✎ {t('editTrip')}</button>}
       </div>
+      {editMeta && (
+        <form className="stack-sm" onSubmit={(e) => { e.preventDefault(); run(async () => {
+          await api(`/trips/${id}`, { method: 'PATCH', body: { finishedAt: new Date(dateStr).getTime(), storeId: storeStr ? Number(storeStr) : null } });
+          setEditMeta(false);
+        }); }}>
+          <label className="field"><span>{t('tripDate')}</span><input type="datetime-local" required dir="ltr" max={localInput(Date.now())} value={dateStr} onChange={(e) => setDateStr(e.target.value)} /></label>
+          <label className="field"><span>{t('tripStore')}</span>
+            <select value={storeStr} onChange={(e) => setStoreStr(e.target.value)}><option value="">{t('tripNoStore')}</option>{d.stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+          <div className="row"><button className="btn small primary" type="submit">{t('save')}</button><button className="btn small" type="button" onClick={() => setEditMeta(false)}>{t('cancel')}</button></div>
+        </form>
+      )}
 
       <section className="stack-sm">
         <h3>{t('receiptsHeading')}</h3>
@@ -187,6 +206,14 @@ function TripDetail({ id, me, listId, onChanged }: { id: number; me: Me; listId:
           </button>
         </div>
       </section>
+
+      {canEdit && (
+        <div><button className="btn small danger" disabled={busy} onClick={() => {
+          if (!confirm(t('confirmDeleteTrip', { lines: d.lines.length, receipts: d.receipts.length }))) return;
+          setBusy(true); setError('');
+          api(`/trips/${id}`, { method: 'DELETE' }).then(() => onChanged()).catch((e) => { setError(errText(e)); setBusy(false); });
+        }}>{t('deleteTrip')}</button></div>
+      )}
     </div>
   );
 }
@@ -329,5 +356,67 @@ function ReceiptReview({ receiptId, currency, onClose, onApplied }: { receiptId:
         {rv.result.engine === 'local' && <button className="btn link" onClick={showRaw}>{raw === null ? t('showRawText') : t('hideRawText')}</button>}
       </div>
     </div>
+  );
+}
+
+type TripRow = { key: number; name: string; qty: string; price: string };
+let rowKey = 0;
+const blankRow = (): TripRow => ({ key: ++rowKey, name: '', qty: '1', price: '' });
+
+// Record a shop that did not go through the Shop tab: date, store, total, the items and (optionally) a receipt photo.
+function AddTrip({ data, onAdded }: { data: Detail; onAdded: () => Promise<void> }) {
+  const { list } = data;
+  const [dateStr, setDateStr] = useState(() => localInput(Date.now()));
+  const [storeStr, setStoreStr] = useState('');
+  const [totalStr, setTotalStr] = useState('');
+  const [rows, setRows] = useState<TripRow[]>(() => [blankRow(), blankRow(), blankRow()]);
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [msg, setMsg] = useState('');
+  const setRow = (key: number, patch: Partial<TripRow>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setError(''); setMsg('');
+    try {
+      const lines = rows.filter((r) => r.name.trim()).map((r) => ({ name: r.name, quantity: num(r.qty) ?? 1, unitPrice: num(r.price) }));
+      const r = await api<{ tripId: number }>(`/lists/${list.id}/trips`, { method: 'POST', body: { at: new Date(dateStr).getTime(), storeId: storeStr ? Number(storeStr) : null, total: num(totalStr), lines } });
+      let note = t('tripAdded');
+      if (photo) { try { await uploadReceiptPhoto(r.tripId, photo); } catch { note = t('tripPhotoFailed'); } }
+      setMsg(note);
+      setDateStr(localInput(Date.now())); setTotalStr(''); setRows([blankRow(), blankRow(), blankRow()]); setPhoto(null);
+      await onAdded();
+    } catch (err) { setError(errText(err)); } finally { setBusy(false); }
+  };
+
+  return (
+    <details className="card">
+      <summary style={{ fontWeight: 700, cursor: 'pointer', minHeight: 32 }}>{t('addTrip')}</summary>
+      <form className="stack-sm" style={{ marginTop: 10 }} onSubmit={submit}>
+        <p className="muted">{t('addTripHint')}</p>
+        {error && <p className="error" role="alert">{error}</p>}
+        {msg && <p className="ok" role="status">{msg}</p>}
+        <label className="field"><span>{t('tripDate')}</span><input type="datetime-local" required dir="ltr" max={localInput(Date.now())} value={dateStr} onChange={(e) => setDateStr(e.target.value)} /></label>
+        <div className="row">
+          <label className="field grow" style={{ minWidth: 0 }}><span>{t('tripStore')}</span>
+            <select value={storeStr} onChange={(e) => setStoreStr(e.target.value)}><option value="">{t('tripNoStore')}</option>{data.stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+          <label className="field"><span>{t('total')}</span><input type="number" inputMode="decimal" min="0" step="0.01" dir="ltr" style={{ width: 110 }} value={totalStr} onChange={(e) => setTotalStr(e.target.value)} /></label>
+        </div>
+        {rows.map((r) => (
+          <div className="row" key={r.key} style={{ flexWrap: 'nowrap' }}>
+            <input style={{ flex: '1 1 120px', minWidth: 0 }} dir="auto" placeholder={t('tripItemName')} aria-label={t('tripItemName')} maxLength={100} value={r.name} onChange={(e) => setRow(r.key, { name: e.target.value })} />
+            <input type="number" inputMode="decimal" min="0" step="any" dir="ltr" style={{ width: 54 }} placeholder={t('qtyShort')} aria-label={t('qtyShort')} value={r.qty} onChange={(e) => setRow(r.key, { qty: e.target.value })} />
+            <input type="number" inputMode="decimal" min="0" step="0.01" dir="ltr" style={{ width: 70 }} placeholder={t('priceShort')} aria-label={t('priceShort')} value={r.price} onChange={(e) => setRow(r.key, { price: e.target.value })} />
+            <button type="button" className="iconbtn" aria-label={t('tripRemoveRow')} title={t('tripRemoveRow')} disabled={rows.length === 1} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}>✕</button>
+          </div>
+        ))}
+        <div className="row">
+          <button type="button" className="btn small" onClick={() => setRows((rs) => [...rs, blankRow()])} disabled={rows.length >= 200}>{t('tripAddRow')}</button>
+          <label className="btn small filebtn">{photo ? photo.name.slice(0, 24) : t('addReceiptPhoto')}<input type="file" accept="image/*" hidden onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); e.target.value = ''; }} /></label>
+        </div>
+        <div><button className="btn primary" type="submit" disabled={busy}>{t('tripSave')}</button></div>
+      </form>
+    </details>
   );
 }

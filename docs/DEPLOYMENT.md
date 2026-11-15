@@ -42,7 +42,7 @@ Receipt reading, price comparison and the Hebrew language are modules that ship 
 
 ## Upgrading
 
-Recommended: **`./update.sh`** (pulls from GitHub, builds first, backs up `data/`, starts the new version, checks it, and rolls back by itself if it fails). Also `./update.sh --tag v1.4.5` (any tag), `--rollback` and `--dry-run`. By hand:
+Recommended: **`./update.sh`** (pulls from GitHub, builds first, backs up `data/`, starts the new version, checks it, and rolls back by itself if it fails). Also `./update.sh --tag v1.5.0` (any tag), `--rollback` and `--dry-run`. By hand:
 
 1. Replace the project folder with the new zip but keep your `data/` folder.
 2. **Keep your port setting:** a new `docker-compose.yml` overwrites the old one, so put your port in a `.env` file next to it (`HOST_PORT=3010`) and it survives upgrades.
