@@ -2,7 +2,7 @@ services:
   shoplist:
     build: .
     # Build on this server by default. To run the published image instead, set SHOPLIST_IMAGE and SHOPLIST_TAG in .env
-    # (see README), then: docker compose pull && docker compose up -d
+    # (see docs/DEPLOYMENT.md), then: docker compose pull && docker compose up -d
     image: ${SHOPLIST_IMAGE:-shoplist}:${SHOPLIST_TAG:-latest}
     container_name: shoplist
     restart: unless-stopped

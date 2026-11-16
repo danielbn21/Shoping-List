@@ -17,11 +17,10 @@ import { orderSections, usePrefs } from './prefs';
 type Props = { data: Detail; me: Me; reload: () => Promise<void>; onDeleted: () => void };
 
 // The active screen: everything that changes what is on the list or how it is organised.
-// Small controls that modules add above "Add items" (for example scanning a barcode); nothing is drawn without one.
+// Small controls that modules add next to the Add button (for example scanning a barcode); nothing is drawn without one.
 function ManageToolbar({ data, me, reload }: { data: Detail; me: Me; reload: () => Promise<void> }) {
   const items = useSlots('manage.toolbar', { me, data });
-  if (!items.length) return null;
-  return <div className="row" style={{ marginBottom: 8 }}>{items.map((m) => <m.component key={`${m.moduleId}:${m.id}`} data={data} me={me} reload={reload} storeId="" />)}</div>;
+  return <>{items.map((m) => <m.component key={`${m.moduleId}:${m.id}`} data={data} me={me} reload={reload} storeId="" />)}</>;
 }
 
 export default function ManageTab({ data, me, reload, onDeleted }: Props) {
@@ -30,7 +29,7 @@ export default function ManageTab({ data, me, reload, onDeleted }: Props) {
   const saved = usePrefs().manageOrder;
   // Every section is collapsible; the user chooses their order in Settings (module sections take part under "<module>:<id>").
   const sections: Record<string, { title: string; node: ReactNode } | null> = {
-    add: { title: t('addItems'), node: <><ManageToolbar data={data} me={me} reload={reload} /><AddItem data={data} me={me} reload={reload} /></> },
+    add: { title: t('addItems'), node: <AddItem data={data} me={me} reload={reload} /> },
     onlist: { title: t('onThisList'), node: <OnThisList data={data} reload={reload} /> },
     past: { title: t('fromHistory'), node: <PastItems data={data} reload={reload} /> },
     csv: { title: t('csvTitle'), node: <CsvCard data={data} reload={reload} /> },
@@ -186,6 +185,7 @@ function AddItem({ data, me, reload }: { data: Detail; me: Me; reload: () => Pro
           <input type="number" inputMode="decimal" min="0.01" step="any" value={qty} onChange={(e) => setQty(e.target.value)} dir="ltr" style={{ textAlign: 'center' }} />
         </label>
         <button className="btn primary grow" type="submit" disabled={!name || creatingCat} style={{ minHeight: 46 }}>{t('add')}</button>
+        <ManageToolbar data={data} me={me} reload={reload} />
       </div>
 
       <label className="field"><span>{t('categoryLabel')}</span>
