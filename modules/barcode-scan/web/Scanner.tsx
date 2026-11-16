@@ -17,7 +17,7 @@ export default function ScanButton({ data, reload, storeId, mode }: ToolbarProps
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className="btn" style={{ minHeight: 48 }} onClick={() => setOpen(true)}>▦ {t('scanButton')}</button>
+      <button type="button" className="btn" style={{ minHeight: mode === 'shop' ? 48 : 46, whiteSpace: 'nowrap' }} onClick={() => setOpen(true)}>▦ {t('scanButton')}</button>
       {open && <Scanner listId={data.list.id} reload={reload} storeId={storeId} mode={mode} onClose={() => setOpen(false)} />}
     </>
   );
@@ -102,7 +102,7 @@ function Scanner({ listId, reload, storeId, mode, onClose }: { listId: number; r
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={t('scanTitle')} style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'var(--bg, #fff)', display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+    <div role="dialog" aria-modal="true" aria-label={t('scanTitle')} style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'var(--paper)', color: 'var(--text)', display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingTop: 'env(safe-area-inset-top, 0px)' }}>
       <div className="row between" style={{ padding: '10px 14px' }}>
         <h2 style={{ margin: 0, fontSize: '1.15rem' }}>{t('scanTitle')}</h2>
         <button type="button" className="btn primary" onClick={onClose}>{t('scanClose')}</button>

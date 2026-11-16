@@ -1,7 +1,7 @@
 {
   "barcode-scan": {
-    "version": "1.0.0",
-    "sha256": "ee7743c48935da3111ecff2ab86b8cbea23bb2b4f022bff24fec6b5569b2afcb"
+    "version": "1.0.1",
+    "sha256": "991150affd64b866c653febb7468d88dce8ca6be4e3bd95fba5ae4866f19f0c3"
   },
   "lang-he": {
     "version": "1.2.0",

@@ -1,7 +1,7 @@
 {
   "id": "barcode-scan",
   "name": "Barcode scanning",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Scan a product's barcode with the phone camera to add it to the list or, while shopping, tick it off. The product name and price come from the supermarket price files read by Price comparison; a barcode is remembered once you have matched it.",
   "author": "Shopping list",
   "requires": {

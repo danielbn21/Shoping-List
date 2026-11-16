@@ -16,6 +16,12 @@ def check(name, cond, extra=""):
     print(("PASS " if cond else "FAIL ") + name + (f"  [{extra}]" if extra and not cond else ""), flush=True)
     if not cond: errors.append(name)
 
+def themed(page):
+    """The scanner's background must be the app's own page colour (light or dark), not a fixed white."""
+    return page.evaluate("""() => { const d = document.querySelector('[role=dialog]'); const probe = document.createElement('div');
+      probe.style.background = 'var(--paper)'; document.body.appendChild(probe); const want = getComputedStyle(probe).backgroundColor; probe.remove();
+      return [getComputedStyle(d).backgroundColor, want, getComputedStyle(d).color, getComputedStyle(document.body).color]; }""")
+
 def launch(p, video):
     return p.chromium.launch(args=["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", f"--use-file-for-fake-video-capture={video}"])
 
@@ -43,6 +49,8 @@ with sync_playwright() as p:
     # ---- shopping: scan a product that looks like Milk on the list -> ask once -> tick
     page.get_by_role("button", name="Scan").click()
     page.wait_for_selector("[role=dialog] video")
+    bg = themed(page)
+    check("1.6.1: in light mode the scanner has the app's page colour and text colour", bg[0] == bg[1] and bg[0] != "rgb(0, 0, 0)" and bg[2] == bg[3], str(bg))
     page.wait_for_selector("text=Is this the same as", timeout=60000)   # the JavaScript reader decodes the fake camera
     check("scanning a product from the price files names it and asks about the similar item", "Milk 3% 1L" in page.locator("[role=alert]").inner_text() and "\"Milk\"" in page.locator("[role=alert]").inner_text(), page.locator("[role=alert]").inner_text())
     page.screenshot(path="/tmp/shots/16-scan-confirm.png")
@@ -61,21 +69,30 @@ with sync_playwright() as p:
     # ---- managing: the button is there too and says what it does
     page.get_by_role("button", name="Manage list").click()
     page.wait_for_selector("button:has-text('Scan')")
+    page.get_by_role("button", name="Add", exact=True).scroll_into_view_if_needed()
+    page.screenshot(path="/tmp/shots/19-manage-add-row.png")
     page.get_by_role("button", name="Scan").click()
     page.wait_for_selector("text=Each scan adds the item to the list.")
     check("Manage list has a Scan button with its own hint", True)
+    page.get_by_role("button", name="Done").click()
+    add_box, scan_box = page.get_by_role("button", name="Add", exact=True).bounding_box(), page.get_by_role("button", name="Scan").bounding_box()
+    check("1.6.1: in Manage list the Scan button is in the same row as Add, to its right", abs((add_box["y"] + add_box["height"] / 2) - (scan_box["y"] + scan_box["height"] / 2)) < 6 and scan_box["x"] > add_box["x"], f"{add_box} {scan_box}")
+    page.get_by_role("button", name="Scan").click()
+    page.wait_for_selector("text=Each scan adds the item to the list.")
     page.get_by_role("button", name="Done").click()
     ctx.storage_state(path="/tmp/scan-state.json")
     br.close()
 
     # ---- a second phone: a barcode that is in no price file -> ask for a name -> added already ticked
     br = launch(p, "/tmp/barcode_b.y4m")
-    ctx = br.new_context(viewport={"width": 390, "height": 844}, locale="en-US", permissions=["camera"], storage_state="/tmp/scan-state.json")
+    ctx = br.new_context(viewport={"width": 390, "height": 844}, locale="en-US", permissions=["camera"], storage_state="/tmp/scan-state.json", color_scheme="dark")
     page = ctx.new_page()
     page.goto(BASE)
     page.get_by_text("Groceries").first.click()
     page.get_by_role("button", name="Scan").click()
     page.wait_for_selector("text=not in the price files", timeout=60000)
+    bg = themed(page)
+    check("1.6.1: in dark mode the scanner follows the dark theme", bg[0] == bg[1] and bg[0] not in ("rgb(255, 255, 255)", "rgb(238, 243, 236)") and bg[2] == bg[3], str(bg))
     check("an unknown barcode asks what it is called", page.locator("[role=alert] input").count() == 1)
     page.screenshot(path="/tmp/shots/18-scan-unknown.png")
     page.locator("[role=alert] input").fill("Grandma jam")
