@@ -1,16 +1,16 @@
-# Shopping List PWA: handoff v5 (15 Nov 2026)
+# Shopping List PWA: handoff v6 (15 Nov 2026)
 
-Written for a fresh chat. It replaces `Shopping_List_PWA_handoff_briefing.md`, `…_v2.md` and the long `docs/HANDOFF.md` inside the zip (put this file there as `docs/HANDOFF.md`). **1.4.5 and 1.5.0 are done (sections 5 and 6). Next: the parked store-versus-category issue, then the backlog.** Give the new chat this file and `shoplist-1_4_5.zip`.
+Written for a fresh chat. It replaces `Shopping_List_PWA_handoff_briefing.md`, `…_v2.md` and the long `docs/HANDOFF.md` inside the zip (put this file there as `docs/HANDOFF.md`). **1.4.5, 1.5.0 and 1.6.0 are done (sections 5 to 7). Next: the parked store-versus-category issue, then the backlog.** Give the new chat this file and `shoplist-1_6_0.zip`.
 
 ---
 
 ## 0. Start here
 
-**Give the new chat:** this file and `shoplist-1_5_0.zip` (the code). Optional: the three module zips (`price-compare-1.3.0`, `receipt-ocr-1.0.1`, `lang-he-1.1.1`), which are already inside the project under `modules/`.
+**Give the new chat:** this file and `shoplist-1_6_0.zip` (the code). Optional: the four module zips (`price-compare-1.4.0`, `receipt-ocr-1.0.1`, `lang-he-1.2.0`, `barcode-scan-1.0.0`), which are already inside the project under `modules/`.
 
-**Owner's working style.** Settles a plan before code ("review before pursuing"); dictates, so expect typos; wants honesty about what is verified; **asks answered one question at a time** (ask at most one); likes short descriptive bullet lists; checks details and will catch sloppy ones (see the lesson in section 7). Wants everything deterministic and local, no cloud AI at runtime. English interface first; Hebrew and right-to-left stay supported for *content*.
+**Owner's working style.** Settles a plan before code ("review before pursuing"); dictates, so expect typos; wants honesty about what is verified; **asks answered one question at a time** (ask at most one); likes short descriptive bullet lists; checks details and will catch sloppy ones (see the lessons in section 8). Wants everything deterministic and local, no cloud AI at runtime. English interface first; Hebrew and right-to-left stay supported for *content*.
 
-**Verified at 1.5.0 (sandbox):** 126 backend tests, 134 browser checks (Playwright, real Tesseract), `tests/test-update.sh` 25 checks, database upgrades 1.2.1→current. **Never verified:** a real Docker build (the image's module-build stage was only simulated by hand), the live retailer portals (the sandbox cannot reach them), matching quality on the owner's real item names, real phones.
+**Verified at 1.6.0 (sandbox):** 141 backend tests, 134 + 11 browser checks (the second script is the fake-camera barcode test) (Playwright, real Tesseract), `tests/test-update.sh` 25 checks, database upgrades 1.2.1→current. **Never verified:** a real Docker build (the image's module-build stage was only simulated by hand), the live retailer portals (the sandbox cannot reach them), matching quality on the owner's real item names, real phones.
 
 **Commands** (repo root; run `npm ci` without `--silent` and check that `node_modules` exists):
 ```
@@ -66,7 +66,7 @@ Optional features are **modules** under `modules/<id>/` (each with `manifest.jso
 
 ## 3. Releases so far (only what matters now)
 
-1.0–1.2: households, lists, history with corrections, OCR, CSV, portals directory. **1.3.0** module system. **1.3.1** collapsible/orderable Manage sections, language only in Settings, Hebrew as a module, `dir="auto"` for content. **1.4.0** prices and matching. **1.4.1** Configure per module, **Compare now** with progress status, red coverage, items to match once per chain, automatic matching at other chains. **1.4.2** Add-items autocomplete "From the stores". **1.4.3** per-list past items (migration 9), multi-select removal, price estimates with per-user switch and admin default. **1.4.4** module version housekeeping and the version guard. **1.4.5** past-items linking fix: CSV import links every created/updated item to the list it is imported into (any quantity), receipt review links items to the trip's list, helper `rememberForList`. **1.5.0** trips by hand (add, edit date and store, delete), import preview count, `lang-he` 1.1.1; also fixed: a trip's store edit now moves its purchase lines too.
+1.0–1.2: households, lists, history with corrections, OCR, CSV, portals directory. **1.3.0** module system. **1.3.1** collapsible/orderable Manage sections, language only in Settings, Hebrew as a module, `dir="auto"` for content. **1.4.0** prices and matching. **1.4.1** Configure per module, **Compare now** with progress status, red coverage, items to match once per chain, automatic matching at other chains. **1.4.2** Add-items autocomplete "From the stores". **1.4.3** per-list past items (migration 9), multi-select removal, price estimates with per-user switch and admin default. **1.4.4** module version housekeeping and the version guard. **1.4.5** past-items linking fix: CSV import links every created/updated item to the list it is imported into (any quantity), receipt review links items to the trip's list, helper `rememberForList`. **1.6.0** barcode scanning: core adds `ctx.core.scanItem`, `ctx.capability`, slots `shop.toolbar` and `manage.toolbar`; new module `barcode-scan` 1.0.0; `price-compare` 1.4.0 provides `barcode-lookup` (migration 4, index on `code`); `lang-he` 1.2.0. **1.5.0** trips by hand (add, edit date and store, delete), import preview count, `lang-he` 1.1.1; also fixed: a trip's store edit now moves its purchase lines too.
 
 ---
 
@@ -113,7 +113,17 @@ Implemented in `server/src/routes/history.js` and `web/src/HistoryTab.tsx`:
 
 ---
 
-## 7. Release routine and lessons
+## 7. DONE: version 1.6.0 (core 1.6.0, barcode-scan 1.0.0, price-compare 1.4.0, lang-he 1.2.0)
+
+Owner's decisions: scanning while shopping an item **not on the list** adds it **already ticked**; an item on the list is ticked; an unknown barcode asks for a name once; the scan also saves the product's price as the item's saved price; a barcode matched once is remembered.
+
+- **Core:** `ctx.core.scanItem({ user, listId, itemId|name, price, tick })` in `server/src/modules/coreApi.js` (the one write a module may do; goes through `addToList`/`checkEntry`, so the item joins the list's past items; ticking needs any list role, adding or creating needs Owner/Editor). `checkEntry` was extracted into `entries.js` and is used by `POST /api/entries/:id/check` too. `ctx.capability(name, userId)` lets one module use another's capability. Slots `shop.toolbar` (next to the Shop search box; props include `storeId`) and `manage.toolbar` (above Add items). The ShopTab now gets `reload`.
+- **price-compare 1.4.0:** capability `barcode-lookup` (`server/barcode.js`): barcode spellings (with or without leading zeros, UPC-A/EAN-13/GTIN-14), never a chain's own code (`item_type 0`), price from the household store's chain, else the list's chosen branches, else any branch read (lowest price in the group); weighted products are flagged. Migration 4 adds an index on `branch_prices(code)`.
+- **barcode-scan 1.0.0:** `POST /api/m/barcode-scan/lists/:id/scan` (`{ code, tick, storeId?, itemId?, name? }` answers `done`, `confirm` or `unknown`). Order: remembered barcode (`barcode_items`) -> chosen item or typed name -> product from the price files (a similar existing item is offered for confirmation, otherwise a new item is made from the product name). Per-kilo prices are not saved as item prices. Works without price-compare (asks for a name). Web: Scan button in Shop (ticks) and Manage list (adds); full-screen scanner with camera, typed-number fallback and check-digit validation. Decoder: the browser's `BarcodeDetector` when it supports EAN (Chrome on Android), else ZXing's EAN-13/EAN-8 readers in JavaScript (imported from their own files, 52 KB; `@zxing/library` is a web devDependency and `scripts/build-modules.mjs` resolves it through `nodePaths`). A repeated scan of an item already in the cart adds 1 to its quantity (my decision, not asked).
+- **Tests:** `modules/barcode-scan/test/scan.test.js` (10), `modules/price-compare/test/barcode.test.js` (5), `e2e/e2e_scan.py` (11 checks, fake camera through `e2e/make_barcodes.py`). The existing price-compare upgrade test now expects schema version 4.
+- **Not verified:** a real phone camera (focus, glare, curved packaging, scanning speed on an older iPhone); real barcode coverage of the chains' price files (run the portal test and look at the barcode and short-code counts per chain); Hebrew layout of the scanner. If scanning is slow on iPhone, swap the JavaScript reader for a WebAssembly one behind the same `decode` function in `decode.ts`. Ideas not built: undo of a scan, torch button, offline queue, taking the item category from the product.
+
+## 8. Release routine and lessons
 
 1. Change a module → bump its version, `node scripts/module-lock.mjs` (the test enforces it). 2. `bash scripts/set-version.sh X.Y.Z`. 3. Run all suites (section 0). 4. Update this file (section 3 release history, section 5). The README is short and only changes when a feature the owner would show on the GitHub page changes; details live in `docs/DEPLOYMENT.md` and `docs/DEVELOPMENT.md`. 5. Zip as `shoplist-X_Y_Z.zip` excluding `node_modules`, `dist`, `dist-modules`, `data`, `.git` and the built `modules/*/web.js`/`web.css`; build the module zips with `node scripts/build-modules.mjs`. 6. Git: `git commit`, tag `vX.Y.Z`, push (the tag triggers the image workflow; see README).
 
@@ -121,7 +131,7 @@ Implemented in `server/src/routes/history.js` and `web/src/HistoryTab.tsx`:
 
 ---
 
-## 8. Reference: portals and file formats (for price-compare work)
+## 9. Reference: portals and file formats (for price-compare work)
 
 **Portals (12 chains, 3 client types).** Shufersal: `https://prices.shufersal.co.il/FileObject/UpdateCategory?catID=<n>&storeId=<id>` (`catID=5` Stores, `catID=2` PriceFull links). Shared portal `https://url.publishedprices.co.il`: login with a per-chain username and empty password (csrf token from `/login`), `POST /file/json/dir`, download `/file/d/<fname>` (usernames: RamiLevi, osherad, yohananof, TivTaam, Keshet, doralon, freshmarket, SalachD, Stop_Market, politzer). Carrefour `https://prices.carrefour.co.il` (path from the page). Chain ids in `modules/price-compare/server/chains.js` (`victory` and `hazi_hinam` listed as not supported). Env overrides for tests: `PORTAL_URL_SHUFERSAL|SHARED|CARREFOUR`, `PORTAL_CITIES_URL`. Branch cities from data.gov.il resource `5c78e9fa-c2e2-4771-93ff-7f400a12f7ba`.
 

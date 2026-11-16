@@ -54,7 +54,8 @@ for (const id of fs.readdirSync(path.join(root, 'modules'))) {
   if (manifest.web && entry) {
     await esbuild.build({
       entryPoints: [entry], outfile: path.join(dir, manifest.web), bundle: true, format: 'esm', target: 'es2020', minify: true,
-      jsx: 'automatic', plugins: [hostReact], legalComments: 'none', logLevel: 'warning',
+      jsx: 'automatic', plugins: [hostReact], nodePaths: [path.join(root, 'web', 'node_modules')], // libraries a module bundles come from web/node_modules
+       legalComments: 'none', logLevel: 'warning',
     });
   }
   const files = collect(dir);

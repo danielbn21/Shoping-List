@@ -417,7 +417,7 @@ test('upgrading a 1.1.0 module database keeps the confirmations and adds what au
   d.pragma('user_version = 2'); d.close();
   app = await buildApp({ dataDir, logger: false });
   const m = app.modules.loaded.get('price-compare').db;
-  assert.equal(m.pragma('user_version', { simple: true }), 3);
+  assert.equal(m.pragma('user_version', { simple: true }), 4);
   assert.deepEqual(m.prepare('SELECT item_id, chain, status, code, source_chain FROM product_map ORDER BY item_id').all().map((r) => [r.item_id, r.chain, r.status, r.code, r.source_chain]), [[5, 'shufersal', 'confirmed', '729000', null], [6, 'rami_levy', 'none', null, null]]);
   m.prepare("INSERT INTO product_map(household_id, item_id, chain, status, confirmed_at) VALUES (1, 7, 'carrefour', 'auto', 1)").run(); // the new status is allowed
   await app.close();

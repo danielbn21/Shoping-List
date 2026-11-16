@@ -27,8 +27,11 @@ A self-hosted, multi-user shopping list for households. Share lists with the peo
 - You match a product to an item once. Matches are shared by every branch of a chain, and clear matches are carried to other chains automatically, with a label you can change.
 - Receipts fill in prices the chains do not publish, and are marked as such.
 
+**Barcode scanning (module)**
+- Scan a product's barcode with the phone camera. While shopping, an item on your list is ticked, and one that is not on the list is added already ticked. In *Manage list* a scan adds the item. The name and price come from the supermarket price files; a barcode you have matched once is remembered, and a barcode no price file knows asks you for a name once.
+
 **Modules, languages and accessibility**
-- Receipt reading, price comparison and extra interface languages are **modules**: install a zip in Admin, switch it on or off, choose who may use it, roll back or uninstall.
+- Receipt reading, price comparison, barcode scanning and extra interface languages are **modules**: install a zip in Admin, switch it on or off, choose who may use it, roll back or uninstall.
 - English interface, with **Hebrew** as an installable language and right-to-left support for lists, items and household names.
 - Installable on a phone or desktop; currency is a personal setting.
 

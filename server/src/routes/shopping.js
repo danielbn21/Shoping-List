@@ -1,5 +1,6 @@
 import { audit } from '../util.js';
 import { makeAccess } from '../access.js';
+import { checkEntry } from '../entries.js';
 
 const bad = (reply, error, code = 400) => reply.code(code).send({ error });
 const cleanText = (s, max) => (typeof s === 'string' ? s.trim().replace(/\s+/g, ' ').slice(0, max) : '');
@@ -17,19 +18,7 @@ export default async function shoppingRoutes(app) {
     const r = entryAccess(req.user, Number(req.params.id));
     if (!r) return bad(reply, 'not_found', 404);
     const checked = !!(req.body || {}).checked;
-    const now = Date.now();
-    db.transaction(() => {
-      if (checked) {
-        db.prepare("UPDATE list_entries SET state = 'in_cart', checked_by = ?, checked_at = ?, updated_at = ? WHERE id = ?").run(req.user.id, now, now, r.entry.id);
-        if (!openTrip(r.entry.list_id)) {
-          db.prepare('INSERT INTO trips(household_id, list_id, shopper_id, started_at) VALUES (?,?,?,?)').run(r.acc.list.household_id, r.entry.list_id, req.user.id, now);
-        }
-      } else {
-        db.prepare("UPDATE list_entries SET state = 'open', checked_by = NULL, checked_at = NULL, updated_at = ? WHERE id = ?").run(now, r.entry.id);
-        const left = db.prepare("SELECT COUNT(*) c FROM list_entries WHERE list_id = ? AND state = 'in_cart' AND deleted = 0").get(r.entry.list_id).c;
-        if (!left) db.prepare('DELETE FROM trips WHERE list_id = ? AND finished_at IS NULL').run(r.entry.list_id); // nobody is shopping any more
-      }
-    })();
+    db.transaction(() => checkEntry(db, { entry: r.entry, householdId: r.acc.list.household_id, userId: req.user.id, checked }))();
     return { ok: true };
   });
 

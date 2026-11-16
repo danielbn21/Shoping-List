@@ -209,6 +209,8 @@ export function createModules(app, { bundledDir = null, moduleOptions = {}, core
     return {
       id: m.id, version: m.version, coreVersion, db: mdb, filesDir: path.join(root, m.id, 'files'), options: moduleOptions[m.id] ?? {}, log: log.child ? log.child({ module: m.id }) : log,
       core,
+      // Another module's capability for this user (null when nobody provides it or the user may not use that module), e.g. ctx.capability('barcode-lookup', user.id).
+      capability: (name, userId) => providerFor(name, userId),
       secrets: app.secrets,
       settings: {
         get: (k, fallback = null) => { const r = get.get(k); if (!r) return fallback; try { return JSON.parse(r.value); } catch { return fallback; } },

@@ -44,6 +44,8 @@ export function makeHost(moduleId: string): Host {
 // Props the core gives to the components modules register, per slot.
 export type ListTabProps = { data: import('./types').Detail; me: Me; reload: () => Promise<void> };
 export type ManageSectionProps = ListTabProps;
+// shop.toolbar (next to the search box in Shop) and manage.toolbar (above "Add items" in Manage list): small controls. storeId is the store chosen in Shop ("" = none).
+export type ToolbarProps = ListTabProps & { storeId: string };
 export type SettingsSectionProps = { me: Me; onChange: () => void };
 export type AdminSectionProps = { me: Me };
 export { addStrings };

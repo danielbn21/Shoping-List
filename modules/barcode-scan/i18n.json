@@ -1,0 +1,29 @@
+{
+ "en": {
+  "scanButton": "Scan",
+  "scanTitle": "Scan barcodes",
+  "scanClose": "Done",
+  "scanPointShop": "Point the camera at a barcode. An item on your list is ticked; a new one is added already ticked.",
+  "scanPointManage": "Point the camera at a barcode. Each scan adds the item to the list.",
+  "scanNoCamera": "The camera is not available here. Type the barcode number instead.",
+  "scanTypeLabel": "Or type the barcode number",
+  "scanLookUp": "Look up",
+  "scanTicked": "{name}: ticked",
+  "scanAddedTicked": "{name}: added to the list and ticked",
+  "scanMore": "{name}: {n} in the cart",
+  "scanAdded": "{name}: added to the list",
+  "scanMerged": "{name}: now {n} on the list",
+  "scanSeen": "Scanned: {product}",
+  "scanConfirmQ": "Is this the same as \"{item}\" on your list?",
+  "scanYes": "Yes, same item",
+  "scanNew": "No, add it as a new item",
+  "scanUnknown": "This barcode is not in the price files you read. What is it called?",
+  "scanNameLabel": "Item name",
+  "scanAdd": "Add",
+  "scanCancel": "Cancel",
+  "scanForbidden": "Only editors can add new items to this list. You can still scan items that are already on it.",
+  "scanPrice": "{price} at {chain}",
+  "scanWeighted": "sold by weight, price not saved",
+  "err_invalid_code": "That is not a valid barcode number."
+ }
+}
