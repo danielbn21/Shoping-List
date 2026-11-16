@@ -1,0 +1,96 @@
+"""Real-browser test of barcode scanning with a fake camera (Chromium plays a video of an EAN-13 barcode as the camera).
+   Needs the app running on 127.0.0.1:3997 with a FRESH data dir (DATA_DIR=/tmp/scan-data) and the barcode videos:
+     python3 e2e/make_barcodes.py
+     DATA_DIR=/tmp/scan-data WEB_DIR=web/dist PORT=3997 node server/src/index.js &
+     python3 e2e/e2e_scan.py
+   The price file row is put straight into the price-compare module's database (no portals needed)."""
+import sqlite3, sys, time
+from playwright.sync_api import sync_playwright
+
+BASE = "http://127.0.0.1:3997"
+A, B = "7290000000015", "7290000000022"
+H = {"X-SL-Client": "web", "Content-Type": "application/json"}
+errors = []
+
+def check(name, cond, extra=""):
+    print(("PASS " if cond else "FAIL ") + name + (f"  [{extra}]" if extra and not cond else ""), flush=True)
+    if not cond: errors.append(name)
+
+def launch(p, video):
+    return p.chromium.launch(args=["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", f"--use-file-for-fake-video-capture={video}"])
+
+def entries(ctx, lid):
+    return {e["name"]: e for e in ctx.request.get(f"{BASE}/api/lists/{lid}").json()["entries"]}
+
+with sync_playwright() as p:
+    # ---- set up: admin, a list with Milk on it, and one product in the price files
+    br = launch(p, "/tmp/barcode_a.y4m")
+    ctx = br.new_context(viewport={"width": 390, "height": 844}, locale="en-US", permissions=["camera"])
+    r = ctx.request.post(f"{BASE}/api/setup", headers=H, data={"name": "Admin", "username": "admin", "password": "correct-horse"})
+    hid = r.json()["user"]["households"][0]["id"]
+    lid = ctx.request.post(f"{BASE}/api/lists", headers=H, data={"householdId": hid, "name": "Groceries"}).json()["id"]
+    ctx.request.post(f"{BASE}/api/lists/{lid}/entries", headers=H, data={"name": "Milk", "quantity": 1})
+    db = sqlite3.connect("/tmp/scan-data/modules/price-compare/data.db")
+    db.execute("INSERT INTO branch_prices(chain, store_id, code, item_type, name, name_norm, manufacturer, price, weighted, seen_file) VALUES ('shufersal','1',?,1,'Milk 3% 1L','milk 3% 1l','Tnuva',7.9,0,'20261110000000')", (A,))
+    db.commit(); db.close()
+
+    page = ctx.new_page()
+    page.goto(BASE)
+    page.get_by_text("Groceries").first.click()
+    page.wait_for_selector("button:has-text('Scan')")
+    check("the Scan button is in the Shop tab", page.locator("button:has-text('Scan')").count() == 1)
+
+    # ---- shopping: scan a product that looks like Milk on the list -> ask once -> tick
+    page.get_by_role("button", name="Scan").click()
+    page.wait_for_selector("[role=dialog] video")
+    page.wait_for_selector("text=Is this the same as", timeout=60000)   # the JavaScript reader decodes the fake camera
+    check("scanning a product from the price files names it and asks about the similar item", "Milk 3% 1L" in page.locator("[role=alert]").inner_text() and "\"Milk\"" in page.locator("[role=alert]").inner_text(), page.locator("[role=alert]").inner_text())
+    page.screenshot(path="/tmp/shots/16-scan-confirm.png")
+    page.get_by_role("button", name="Yes, same item").click()
+    page.wait_for_selector("text=Milk: ticked")
+    check("the item is ticked and the price from the price files is shown", "7.90" in page.locator("[role=dialog] li").first.inner_text(), page.locator("[role=dialog] li").first.inner_text())
+    e = entries(ctx, lid)
+    check("Milk is in the cart and has the scanned price", e["Milk"]["state"] == "in_cart")
+    page.wait_for_timeout(5000)   # the camera still shows the same barcode: it is remembered now, so it is one more in the cart
+    page.wait_for_selector("text=Milk: 2 in the cart", timeout=30000)
+    check("a remembered barcode needs no question; scanning again adds one to the cart", entries(ctx, lid)["Milk"]["quantity"] >= 2)
+    page.screenshot(path="/tmp/shots/17-scan-done.png")
+    page.get_by_role("button", name="Done").click()
+    check("the scanner closes", page.locator("[role=dialog]").count() == 0)
+
+    # ---- managing: the button is there too and says what it does
+    page.get_by_role("button", name="Manage list").click()
+    page.wait_for_selector("button:has-text('Scan')")
+    page.get_by_role("button", name="Scan").click()
+    page.wait_for_selector("text=Each scan adds the item to the list.")
+    check("Manage list has a Scan button with its own hint", True)
+    page.get_by_role("button", name="Done").click()
+    ctx.storage_state(path="/tmp/scan-state.json")
+    br.close()
+
+    # ---- a second phone: a barcode that is in no price file -> ask for a name -> added already ticked
+    br = launch(p, "/tmp/barcode_b.y4m")
+    ctx = br.new_context(viewport={"width": 390, "height": 844}, locale="en-US", permissions=["camera"], storage_state="/tmp/scan-state.json")
+    page = ctx.new_page()
+    page.goto(BASE)
+    page.get_by_text("Groceries").first.click()
+    page.get_by_role("button", name="Scan").click()
+    page.wait_for_selector("text=not in the price files", timeout=60000)
+    check("an unknown barcode asks what it is called", page.locator("[role=alert] input").count() == 1)
+    page.screenshot(path="/tmp/shots/18-scan-unknown.png")
+    page.locator("[role=alert] input").fill("Grandma jam")
+    page.get_by_role("button", name="Add", exact=True).click()
+    page.wait_for_selector("text=Grandma jam: added to the list and ticked")
+    e = entries(ctx, lid)
+    check("the new item is on the list, already ticked", e.get("Grandma jam", {}).get("state") == "in_cart", str(list(e)))
+    items = ctx.request.get(f"{BASE}/api/households/{hid}/items?listId={lid}").json()["items"]
+    check("and it is one of the list's past items", "Grandma jam" in [i["name"] for i in items])
+    # typed number (no camera needed): the check digit is verified
+    page.get_by_label("Or type the barcode number").fill("1234567890123")
+    page.get_by_role("button", name="Look up").click()
+    page.wait_for_selector("text=not a valid barcode")
+    check("a typed number with a wrong check digit is refused", True)
+    br.close()
+
+print("FAILED: " + (", ".join(errors) if errors else "none"))
+sys.exit(1 if errors else 0)
