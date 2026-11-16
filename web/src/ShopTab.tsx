@@ -4,19 +4,21 @@ import { t, errText } from './i18n';
 import { effectiveCurrency, formatMoney } from './money';
 import { catName, fmt } from './util';
 import type { Detail, Entry, Me } from './types';
+import { useSlots } from './slots';
 
 type Props = {
-  data: Detail; me: Me;
+  data: Detail; me: Me; reload: () => Promise<void>;
   onToggle: (e: Entry, checked: boolean) => void;
   onFinish: (storeId: string, extras: { total: string; photo: File | null }) => Promise<{ purchased: number; left: number; receipt: 'none' | 'saved' | 'failed' }>;
 };
 
 // The passive screen: search, tick things off, undo, finish. Nothing here edits the list itself.
-export default function ShopTab({ data, me, onToggle, onFinish }: Props) {
+export default function ShopTab({ data, me, reload, onToggle, onFinish }: Props) {
   const { list, entries, categories, stores, shoppingNow } = data;
   const storeKey = `sl_store_${list.householdId}`;
   const [search, setSearch] = useState('');
   const [storeId, setStoreId] = useState(() => localStorage.getItem(storeKey) ?? '');
+  const toolbar = useSlots('shop.toolbar', { me, data }); // controls added by modules (for example scanning a barcode)
   const [confirming, setConfirming] = useState(false);
   const [receiptTotal, setReceiptTotal] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
@@ -88,6 +90,7 @@ export default function ShopTab({ data, me, onToggle, onFinish }: Props) {
       <div className="addrow">
         <input type="search" dir="auto" className="grow" style={{ minHeight: 48 }} value={search} onChange={(e) => setSearch(e.target.value)}
           placeholder={t('searchList')} aria-label={t('searchList')} />
+        {toolbar.map((m) => <m.component key={`${m.moduleId}:${m.id}`} data={data} me={me} reload={reload} storeId={storeId} />)}
         {stores.length > 0 && (
           <select aria-label={t('orderBy')} style={{ maxWidth: 190 }} value={storeId}
             onChange={(e) => { setStoreId(e.target.value); localStorage.setItem(storeKey, e.target.value); }}>

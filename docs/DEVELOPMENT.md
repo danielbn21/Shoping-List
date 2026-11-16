@@ -8,6 +8,7 @@ cd server && npm run dev                  # API on :3000, data in ../data
 cd web && npm install && npm run dev      # Vite on :5173, proxies /api to :3000
 node scripts/build-modules.mjs            # after changing a module's browser code
 python e2e/make_receipts.py && python e2e/e2e.py   # real-browser test incl. real OCR (see the header of e2e.py)
+python e2e/make_barcodes.py && python e2e/e2e_scan.py   # barcode scanning with a fake camera (see the header of e2e_scan.py)
 ```
 
 The web app is type-checked with `cd web && npx tsc --noEmit` and, for module sources, `npx tsc --noEmit -p tsconfig.modules.json`.
@@ -29,7 +30,8 @@ server/src/modules/       module system: manifest checks, zip install, loader, e
 server/src/routes/        auth, admin, lists, shopping, households, history, itemsCsv, modules
 server/test/              node:test API tests
 modules/receipt-ocr/      Tesseract + cloud receipt reading
-modules/price-compare/    supermarket portals, branch directory, price comparison, item suggestions
+modules/price-compare/    supermarket portals, branch directory, price comparison, item suggestions, barcode lookup
+modules/barcode-scan/     scanning barcodes with the camera (bundles ZXing's EAN readers from web/node_modules)
 modules/lang-he/          Hebrew interface text (a language module)
 scripts/                  set-version.sh, build-modules.mjs, module-lock.mjs
 web/src/                  React + Vite PWA (i18n.ts holds the English text; other languages are modules)
@@ -38,7 +40,7 @@ e2e/                      real-browser test with real OCR
 
 ## Past items rule
 
-A list's past items are the rows of `list_items`. Every code path that puts an item on a list, imports it into a list, or records a purchase for it on a list must call `rememberForList()` (`server/src/entries.js`). Today that is `addToList`, the entry insert in `routes/lists.js`, the CSV import, the receipt review and the add-a-trip route (`POST /api/lists/:id/trips`). When you add a writer, grep `INSERT INTO items`, `INSERT INTO purchase_events` and `INSERT INTO list_entries`, and cover it in `server/test/pastitems*.test.js`.
+A list's past items are the rows of `list_items`. Every code path that puts an item on a list, imports it into a list, or records a purchase for it on a list must call `rememberForList()` (`server/src/entries.js`). Today that is `addToList`, the entry insert in `routes/lists.js`, the CSV import, the receipt review, the add-a-trip route (`POST /api/lists/:id/trips`) and `ctx.core.scanItem` (modules). When you add a writer, grep `INSERT INTO items`, `INSERT INTO purchase_events` and `INSERT INTO list_entries`, and cover it in `server/test/pastitems*.test.js`.
 
 ## Duplicate prevention
 

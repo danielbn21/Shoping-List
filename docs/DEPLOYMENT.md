@@ -14,7 +14,7 @@ Open `http://<server-ip>:3000` (or `HOST_PORT=3010 docker compose up -d --build`
 
 ## Nginx Proxy Manager + Cloudflare
 
-PWAs (install, service worker, push) need HTTPS.
+PWAs (install, service worker, push) need HTTPS, and so does the phone camera that barcode scanning uses.
 
 1. NPM → Proxy Hosts → Add: your domain, scheme `http`, forward host = the Docker host, port `3000`.
 2. Turn on **Websockets Support** (for live sync, when it is added) and **Block Common Exploits**.
@@ -32,7 +32,7 @@ The server trusts `X-Forwarded-*` headers, so cookies are marked `Secure` automa
 
 ## Modules and restarts
 
-Receipt reading, price comparison and the Hebrew language are modules that ship with the image and start switched on. In **Admin → Modules** an admin can install a module from a zip (the screen shows its name, version and a hash to confirm), switch it on or off, choose who may use it, roll back or uninstall. Changes take effect after the admin presses **Restart server**; Docker (`restart: unless-stopped`, already in the compose file) starts the server again. Installed modules and their data live in `data/modules/`. An uploaded module runs inside the server with full access to its own data, so install only modules you trust.
+Receipt reading, price comparison, barcode scanning and the Hebrew language are modules that ship with the image and start switched on. In **Admin → Modules** an admin can install a module from a zip (the screen shows its name, version and a hash to confirm), switch it on or off, choose who may use it, roll back or uninstall. Changes take effect after the admin presses **Restart server**; Docker (`restart: unless-stopped`, already in the compose file) starts the server again. Installed modules and their data live in `data/modules/`. An uploaded module runs inside the server with full access to its own data, so install only modules you trust.
 
 ## Receipt reading and privacy
 

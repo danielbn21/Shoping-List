@@ -5,6 +5,7 @@ import { createDirectory } from './portals/directory.js';
 import { createPrices } from './prices.js';
 import { createAutoMatcher } from './automatch.js';
 import { createCatalog } from './catalog.js';
+import { createBarcodeLookup } from './barcode.js';
 import compareRoutes from './compare.js';
 import portalRoutes from './portalRoutes.js';
 
@@ -145,6 +146,10 @@ DROP TABLE product_map;
 ALTER TABLE product_map_new RENAME TO product_map;
 CREATE INDEX idx_product_map_item ON product_map(household_id, item_id);
 `,
+  // 4 (1.4.0): find a product by its barcode across the branches (the barcode-lookup capability)
+  `
+CREATE INDEX IF NOT EXISTS idx_branch_prices_code ON branch_prices(code);
+`,
 ];
 
 export default function register(ctx) {
@@ -169,6 +174,8 @@ export default function register(ctx) {
   // 'item-catalog': Add items offers the products of the chosen branches while you type (see catalog.js)
   ctx.provide('item-catalog', createCatalog({ db, prices, chains, core: ctx.core, auto }));
   portalRoutes(ctx, { chains, dir, portals });
+  // 'barcode-lookup': what is this barcode, and what does it cost where you shop (used by the barcode-scan module)
+  ctx.provide('barcode-lookup', createBarcodeLookup({ db, chains }));
 
   // Admin setting of this module (shown in the admin section of the web app).
   const adminSettings = () => ({ branchCacheDays: ctx.settings.get('branch_cache_days', 7), priceRefreshHours: ctx.settings.get('price_refresh_hours', 24), oldAfterDays: ctx.settings.get('old_after_days', 60) });

@@ -82,7 +82,7 @@ export default function ListView({ listId, me, onBack }: { listId: number; me: M
       </div>
       {error && <p className="error" role="alert">{error}</p>}
 
-      {tab === 'shop' && <ShopTab data={data} me={me} onToggle={toggle} onFinish={finish} />}
+      {tab === 'shop' && <ShopTab data={data} me={me} reload={load} onToggle={toggle} onFinish={finish} />}
       {isEditor && tab === 'manage' && <ManageTab data={data} me={me} reload={load} onDeleted={onBack} />}
       {moduleTabs.map((m) => tab === `${m.moduleId}:${m.id}` && <m.component key={`${m.moduleId}:${m.id}`} data={data} me={me} reload={load} />)}
       {tab === 'history' && <HistoryTab data={data} me={me} reload={load} />}

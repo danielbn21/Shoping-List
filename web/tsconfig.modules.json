@@ -4,7 +4,8 @@
     "baseUrl": ".",
     "paths": {
       "react": ["./node_modules/@types/react"],
-      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"]
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],
+      "@zxing/library/*": ["./node_modules/@zxing/library/*"]
     },
     "types": ["vite/client"]
   },

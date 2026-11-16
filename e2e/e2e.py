@@ -583,12 +583,14 @@ with sync_playwright() as p:
     # ---- modules (1.3.0): the user's own switches, then Admin > Modules ----
     page.get_by_role("button", name="Settings", exact=True).click()
     mods = page.locator("section.card", has=page.locator("h2:text-is('Modules')"))
-    check("Settings > Modules lists the bundled modules, both on by default",
-          mods.locator("input[type=checkbox]:checked").count() == 2 and "Price comparison" in mods.inner_text() and "Receipt reading" in mods.inner_text(), mods.inner_text()[:200])
+    # a module's switch is found by its name in bold (another module's description may mention "Price comparison")
+    pc = lambda: page.locator("section.card", has=page.locator("h2:text-is('Modules')")).locator("label.check", has=page.locator("strong:text-is('Price comparison')")).locator("input")
+    check("Settings > Modules lists the bundled modules, all on by default",
+          mods.locator("input[type=checkbox]:checked").count() == 3 and "Price comparison" in mods.inner_text() and "Receipt reading" in mods.inner_text() and "Barcode scanning" in mods.inner_text(), mods.inner_text()[:200])
     check("the receipt reading section is in Settings; the supermarket portals are not (they moved to the module's Configure panel)", page.locator("form:has-text('Receipt scanning')").count() == 1 and page.locator("details.card > summary", has_text="Supermarket portals").count() == 0)
-    mods.get_by_label("Price comparison", exact=False).click()   # controlled checkbox: it changes once the server has answered
+    pc().click()   # controlled checkbox: it changes once the server has answered
     page.wait_for_timeout(800)
-    check("switching a module off takes effect at once", mods.get_by_label("Price comparison", exact=False).is_checked() is False)
+    check("switching a module off takes effect at once", pc().is_checked() is False)
     page.get_by_role("button", name="Lists", exact=True).click()
     page.wait_for_selector("button:has-text('Manage list'), .list-card")
     if page.locator(".list-card").count():
@@ -598,9 +600,9 @@ with sync_playwright() as p:
     check("...and the Compare prices tab", page.get_by_role("menuitem", name="Compare prices").count() == 0 and page.get_by_role("menuitem", name="List history").count() == 1)
     page.keyboard.press("Escape")
     page.get_by_role("button", name="Settings", exact=True).click()
-    page.locator("section.card", has=page.locator("h2:text-is('Modules')")).get_by_label("Price comparison", exact=False).click()
+    pc().click()
     page.wait_for_timeout(800)
-    check("switching it back on needs no reload", page.locator("section.card", has=page.locator("h2:text-is('Modules')")).get_by_label("Price comparison", exact=False).is_checked() is True)
+    check("switching it back on needs no reload", pc().is_checked() is True)
 
     import zipfile, io, os, hashlib
     buf = io.BytesIO()
@@ -614,7 +616,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Admin", exact=True).click()
     page.get_by_role("button", name="Modules", exact=True).click()
     page.wait_for_selector("text=Price comparison")
-    check("Admin > Modules lists the bundled modules (two features and the Hebrew language) as running", page.locator("section.card .chip", has_text="Running").count() == 3)
+    check("Admin > Modules lists the bundled modules (three features and the Hebrew language) as running", page.locator("section.card .chip", has_text="Running").count() == 4)
     check("Configure is only offered where a module has settings", page.get_by_role("button", name="Configure").count() == 1)
     page.screenshot(path="/tmp/shots/11-admin-modules.png", full_page=True)
     page.locator("input[type=file]").set_input_files("/tmp/sample-module.zip")
