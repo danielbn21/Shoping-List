@@ -627,5 +627,9 @@
  "scanForbidden": "רק עורכים יכולים להוסיף פריטים חדשים לרשימה הזו. עדיין אפשר לסרוק פריטים שכבר ברשימה.",
  "scanPrice": "{price} ב{chain}",
  "scanWeighted": "נמכר לפי משקל, המחיר לא נשמר",
- "err_invalid_code": "זה לא מספר ברקוד תקין."
+ "err_invalid_code": "זה לא מספר ברקוד תקין.",
+ "scanRename": "עריכת שם",
+ "scanSave": "שמירה",
+ "scanRenamed": "השם שונה: \"{from}\" הוא עכשיו \"{to}\"",
+ "scanNewNameHint": "אם זה פריט חדש, אפשר לשנות את שמו:"
 }

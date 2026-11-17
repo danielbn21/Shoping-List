@@ -1,16 +1,16 @@
-# Shopping List PWA: handoff v7 (16 Nov 2026)
+# Shopping List PWA: handoff v8 (17 Nov 2026)
 
-Written for a fresh chat. It replaces `Shopping_List_PWA_handoff_briefing.md`, `…_v2.md` and the long `docs/HANDOFF.md` inside the zip (put this file there as `docs/HANDOFF.md`). **1.4.5, 1.5.0, 1.6.0 and 1.6.1 are done (sections 5 to 7). Next: the parked store-versus-category issue, then the backlog.** Give the new chat this file and `shoplist-1_6_1.zip`.
+Written for a fresh chat. It replaces `Shopping_List_PWA_handoff_briefing.md`, `…_v2.md` and the long `docs/HANDOFF.md` inside the zip (put this file there as `docs/HANDOFF.md`). **1.4.5, 1.5.0, 1.6.0, 1.6.1 and 1.7.0 are done (sections 5 to 7). Next: 1.8.0 = automatic categories for scanned items, then barcode scan and receipt-photo OCR inside Add a trip (both agreed with the owner, see section 7b); the parked store-versus-category issue waits for a screenshot.** Give the new chat this file and `shoplist-1_7_0.zip`.
 
 ---
 
 ## 0. Start here
 
-**Give the new chat:** this file and `shoplist-1_6_1.zip` (the code). Optional: the four module zips (`price-compare-1.4.0`, `receipt-ocr-1.0.1`, `lang-he-1.2.0`, `barcode-scan-1.0.1`), which are already inside the project under `modules/`.
+**Give the new chat:** this file and `shoplist-1_7_0.zip` (the code). Optional: the four module zips (`price-compare-1.4.0`, `receipt-ocr-1.0.1`, `lang-he-1.2.1`, `barcode-scan-1.1.0`), which are already inside the project under `modules/`.
 
 **Owner's working style.** Settles a plan before code ("review before pursuing"); dictates, so expect typos; wants honesty about what is verified; **asks answered one question at a time** (ask at most one); likes short descriptive bullet lists; checks details and will catch sloppy ones (see the lessons in section 8). Wants everything deterministic and local, no cloud AI at runtime. English interface first; Hebrew and right-to-left stay supported for *content*.
 
-**Verified at 1.6.0 (sandbox):** 141 backend tests, 134 + 14 browser checks (the second script is the fake-camera barcode test) (Playwright, real Tesseract), `tests/test-update.sh` 25 checks, database upgrades 1.2.1→current. **Never verified:** a real Docker build (the image's module-build stage was only simulated by hand), the live retailer portals (the sandbox cannot reach them), matching quality on the owner's real item names, real phones.
+**Verified at 1.7.0 (sandbox):** 143 backend tests, 134 + 20 browser checks (the second script is the fake-camera barcode test), `tests/test-update.sh` 25 checks, both `tsc` runs clean. Earlier: 1.6.0 had 141 tests and 134 + 14 checks (Playwright, real Tesseract), `tests/test-update.sh` 25 checks, database upgrades 1.2.1→current. **Never verified:** a real Docker build (the image's module-build stage was only simulated by hand), the live retailer portals (the sandbox cannot reach them), matching quality on the owner's real item names, real phones.
 
 **Commands** (repo root; run `npm ci` without `--silent` and check that `node_modules` exists):
 ```
@@ -52,9 +52,10 @@ Optional features are **modules** under `modules/<id>/` (each with `manifest.jso
 
 | Module (version) | Does |
 | --- | --- |
-| `price-compare` 1.3.0 | portals of 12 Israeli chains, branch directory, daily price files merged per branch/item, product matching, Compare tab, Add-items catalog (`item-catalog`), `price-source`. Own tables: `branch_prices`, `branch_price_state`, `product_map`, `store_chain`, `list_compare_*`, portal tables |
+| `price-compare` 1.4.0 | portals of 12 Israeli chains, branch directory, daily price files merged per branch/item, product matching, Compare tab, Add-items catalog (`item-catalog`), `price-source`. Own tables: `branch_prices`, `branch_price_state`, `product_map`, `store_chain`, `list_compare_*`, portal tables |
 | `receipt-ocr` 1.0.1 | capability `receipt-reader` (Tesseract / own cloud key); the core keeps the queue and the review screen |
-| `lang-he` 1.1.0 | `kind: language`: data only, `strings.json` covers core and module keys; English is built in |
+| `barcode-scan` 1.1.0 | scan button (`shop.toolbar`, `manage.toolbar`), rename of the scanned item; uses capability `barcode-lookup` of price-compare |
+| `lang-he` 1.2.1 | `kind: language`: data only, `strings.json` covers core and module keys; English is built in |
 
 **Contract (details in `docs/MODULES.md`).** Server entry `export const migrations = [...]; export default function register(ctx)`; imports only `node:` built-ins and own files. `ctx`: `db`, `settings`, `routes` (served at `/api/m/<id>/…`, login + module access enforced), `events.on(...)` (`list.deleted`, `item.deleted`, `store.deleted`, `household.deleted`, `user.deleted`), `provide(capability, impl)`, `core` read API (`listAccess`, `canEdit`, `listOpenEntries`, `householdStores`, `storeAccess`, `lastPaid`, `itemInHousehold`, `similarItem`, `audit`), `filesDir`, `secrets`. Browser code is compiled ahead of time (`scripts/build-modules.mjs`, React supplied by the app as `globalThis.__SL_HOST__`) and registers into slots `list.tab`, `manage.section`, `settings.section`, `admin.section`. Capabilities: `receipt-reader`, `price-source`, `item-catalog`.
 
@@ -122,6 +123,18 @@ Owner's decisions: scanning while shopping an item **not on the list** adds it *
 - **barcode-scan 1.0.0:** `POST /api/m/barcode-scan/lists/:id/scan` (`{ code, tick, storeId?, itemId?, name? }` answers `done`, `confirm` or `unknown`). Order: remembered barcode (`barcode_items`) -> chosen item or typed name -> product from the price files (a similar existing item is offered for confirmation, otherwise a new item is made from the product name). Per-kilo prices are not saved as item prices. Works without price-compare (asks for a name). Web: Scan button in Shop (ticks) and Manage list (adds); full-screen scanner with camera, typed-number fallback and check-digit validation. Decoder: the browser's `BarcodeDetector` when it supports EAN (Chrome on Android), else ZXing's EAN-13/EAN-8 readers in JavaScript (imported from their own files, 52 KB; `@zxing/library` is a web devDependency and `scripts/build-modules.mjs` resolves it through `nodePaths`). A repeated scan of an item already in the cart adds 1 to its quantity (my decision, not asked).
 - **Tests:** `modules/barcode-scan/test/scan.test.js` (10), `modules/price-compare/test/barcode.test.js` (5), `e2e/e2e_scan.py` (11 checks, fake camera through `e2e/make_barcodes.py`). The existing price-compare upgrade test now expects schema version 4.
 - **Not verified:** a real phone camera (focus, glare, curved packaging, scanning speed on an older iPhone); real barcode coverage of the chains' price files (run the portal test and look at the barcode and short-code counts per chain); Hebrew layout of the scanner. If scanning is slow on iPhone, swap the JavaScript reader for a WebAssembly one behind the same `decode` function in `decode.ts`. Ideas not built: undo of a scan, torch button, offline queue, taking the item category from the product.
+
+## 7b. DONE: version 1.7.0 (core 1.7.0, barcode-scan 1.1.0, lang-he 1.2.1)
+
+Two owner-reported problems with scanning.
+
+- **Bug: naming an unknown barcode in Manage list jumped to Home and added nothing.** Reproduced first (browser test): the Scan button lives in the Add-item `<form>` (1.6.1 put it in that row) and the scanner dialog was rendered inside it, so its buttons and Enter key submitted that form (native GET to `/?` = reload = Home). Fix: the dialog is drawn in `document.body` through a portal (`host.createPortal`, new in core 1.7.0) and its root stops `submit` bubbling (React events still travel up through a portal, which would otherwise have added text typed in the Add field). `e2e_scan.py` now covers unknown barcode in Manage list, including text typed in the Add field.
+- **Feature: rename the scanned item.** After every scan the scanner shows the item with an **Edit name** button (hidden for Shoppers); the camera pauses while the name is typed. `POST /api/m/barcode-scan/lists/:id/scan/rename { itemId, name }` -> `{ ok, item }` calls the new `ctx.core.renameItem({ user, listId, itemId, name })` (Owner/Editor; name unique in the household, errors `not_found | forbidden | invalid_name | item_exists` 409; only items that have a barcode in `barcode_items` can be renamed this way). A barcode points at the item, not its name, so it follows the rename and the next scan lands on the new name. It renames the **household item** (list, history and price matches show the new name; no merging with an item of the same name, it is refused). In the "same as...?" question the name for "No, add as new item" is now editable too.
+- **Versions:** barcode-scan 1.1.0 (requires core >=1.7.0), lang-he 1.2.1 (4 new strings: `scanRename`, `scanSave`, `scanRenamed`, `scanNewNameHint`).
+- **Tests:** `scan.test.js` 12 (two new), `e2e_scan.py` 20 checks.
+- **Not verified:** a real phone (soft keyboard over the rename field, Hebrew layout of the new card).
+
+**Next (agreed, not started): 1.8.0.** (1) Automatic categories for scanned items, deterministic and local: inherit the category of the similar existing item, else the category last used for the same manufacturer/name words, else a small built-in keyword table (English and Hebrew), else Uncategorized; editable in the same panel as the name. (2) In **Add a trip**: a Scan button (needs a mode of the scanner that returns the product, name and price from the price files, without touching the list) and a receipt-photo button that fills the rows (names, quantities, prices) through the `receipt-reader` capability and the existing review step, nothing saved before the review.
 
 ## 8. Release routine and lessons
 
