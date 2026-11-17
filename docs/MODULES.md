@@ -62,6 +62,7 @@ export default function register(ctx) {
   ctx.core.listAccess(user, listId); ctx.core.listOpenEntries(listId); ctx.core.householdStores(hid);
   ctx.core.storeAccess(user, storeId); ctx.core.similarItem(householdId, name); ctx.core.itemInHousehold(householdId, itemId); ctx.core.lastPaid({ itemId, storeIds, userId }); ctx.audit(userId, action, target, detail);
   ctx.core.scanItem({ user, listId, itemId, name, price, tick });   // since 1.6.0, the one write: puts an item on the list or ticks it (see below)
+  ctx.core.renameItem({ user, listId, itemId, name });             // since 1.7.0: renames a household item ({ itemId, name, previousName } or { error }); Owner/Editor, name unique in the household
   ctx.capability('barcode-lookup', userId);                          // since 1.6.0: another module's capability for this user, or null
 }
 ```
@@ -86,6 +87,7 @@ Rules enforced when a module is installed: only `node:` built-ins and relative i
 ```tsx
 import type { Host } from '../../../web/src/host';
 export default function register(host: Host) {
+  // host.createPortal(node, document.body) (since 1.7.0): draw a dialog outside the core's forms and scroll boxes. Events still bubble through a portal in React, so stop `submit` at the dialog's root.
   host.slots.add('settings.section', { id: 'x', title: () => host.t('xTitle'), order: 20, collapsible: true, component: MyPanel });
 }
 ```
