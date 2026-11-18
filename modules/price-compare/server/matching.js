@@ -53,15 +53,25 @@ export function excludedFor(queryName, candidateName) {
   return EXCLUDE.some((g) => g.some((w) => hasWord(c, w)) && !g.some((w) => hasWord(q, w)));
 }
 
-// candidates: [{ name, manufacturer?, price?, ... }] -> the same objects with `score` (0..1.2), best first, at most `limit`.
-export function rank(queryName, candidates, { limit = 8 } = {}) {
+// A manufacturer as one comparable word: "אסם תעשיות בע\"מ", "אסם" and "עסם" all give the brand word, corporate wording left out.
+const CORPORATE = new Set(['בעמ', 'בע', 'תעשיות', 'תעשיה', 'מפעלי', 'אחזקות', 'גרופ', 'שיווק', 'ישראל', 'טריידינג', 'סחר', 'יבוא', 'ויצוא', 'חברת', 'קבוצת', 'הפצה', 'מזון', 'מוצרי', 'לימיטד', 'ltd', 'inc']);
+export function brandKey(manufacturer) {
+  const t = norm(manufacturer).split(' ').filter((w) => w && !CORPORATE.has(w));
+  return t[0] && t[0] !== 'לא' ? t[0] : '';
+}
+
+// candidates: [{ name, description?, manufacturer?, pack?, price?, ... }] -> the same objects with `score` (0..1.2), best first, at most `limit`.
+// A price file may cut the name short (20 characters at some chains) and keep the whole text in `description`; the longer text is what is compared.
+// source: a product already known to be the right one at another chain ({ manufacturer, pack }): the same brand and the same pack size raise the score, another size lowers it.
+export function rank(queryName, candidates, { limit = 8, source = null } = {}) {
   const qt = tokens(queryName);
   if (!qt.length) return [];
   const qn = norm(queryName);
   const scored = [];
   for (const cand of candidates) {
     if (excludedFor(queryName, cand.name)) continue;
-    const ct = tokens(cand.name), mt = tokens(cand.manufacturer || '');
+    const ctName = tokens(cand.name), ctDesc = cand.description ? tokens(cand.description) : null;
+    const ct = ctDesc && ctDesc.length > ctName.length ? ctDesc : ctName, mt = tokens(cand.manufacturer || '');
     let sum = 0, matchedNameTokens = new Set();
     for (const q of qt) {
       let best = 0, bestIdx = -1;
@@ -76,7 +86,12 @@ export function rank(queryName, candidates, { limit = 8 } = {}) {
     const precision = ct.length ? matched / (matched + extra * 0.5) : 0;
     let score = coverage * 0.75 + precision * 0.25;
     if (ct[0] && tokenScore(qt[0], ct[0]) >= 1) score += 0.05;
-    if (norm(cand.name) === qn) score += 0.1;
+    if (norm(cand.name) === qn || (cand.description && norm(cand.description) === qn)) score += 0.1;
+    if (source) {
+      const bk = brandKey(source.manufacturer), ck = brandKey(cand.manufacturer);
+      if (bk && ck) score += bk === ck ? 0.12 : -0.12;
+      if (source.pack && cand.pack) score += packsDiffer(source.pack, cand.pack) ? -0.2 : 0.1;
+    }
     scored.push({ ...cand, score: Math.round(score * 1000) / 1000 });
   }
   scored.sort((a, b) => b.score - a.score || tokens(a.name).length - tokens(b.name).length || (a.price ?? 0) - (b.price ?? 0) || String(a.name).localeCompare(String(b.name)));

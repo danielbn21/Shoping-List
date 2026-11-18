@@ -4,6 +4,9 @@ import { createPortals } from './portals/clients.js';
 import { createDirectory } from './portals/directory.js';
 import { createPrices } from './prices.js';
 import { createAutoMatcher } from './automatch.js';
+import { createSuggester } from './suggest.js';
+import { createGuesser } from './guesses.js';
+import { createAi } from './ai.js';
 import { createCatalog } from './catalog.js';
 import { createBarcodeLookup } from './barcode.js';
 import compareRoutes from './compare.js';
@@ -150,6 +153,43 @@ CREATE INDEX idx_product_map_item ON product_map(household_id, item_id);
   `
 CREATE INDEX IF NOT EXISTS idx_branch_prices_code ON branch_prices(code);
 `,
+  // 5 (1.5.0): automatic matching. Products keep the chain's longer description (several chains cut ItemName at 20 characters), files already
+  // read are read once more to fill it, matches say how they were made, guesses are kept for the one-tap review, and an AI's translations of
+  // English item names are remembered (each English phrase is asked about once).
+  `
+ALTER TABLE branch_prices ADD COLUMN description TEXT NOT NULL DEFAULT '';
+ALTER TABLE branch_prices ADD COLUMN desc_norm TEXT NOT NULL DEFAULT '';
+ALTER TABLE branch_price_state ADD COLUMN desc_ok INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE product_map ADD COLUMN auto_via TEXT;      -- for auto: 'name' (the item's name is the product's name), 'barcode' or 'equivalent'
+CREATE TABLE match_guess (                              -- the best candidate for an item at a chain that is not sure enough to apply by itself
+  household_id INTEGER NOT NULL,
+  item_id INTEGER NOT NULL,
+  chain TEXT NOT NULL,
+  stamp TEXT NOT NULL,                                  -- what the guess was made from (item name, branch files, translation); a different stamp means it is made again
+  code TEXT,                                            -- NULL = looked, nothing close enough
+  name TEXT,
+  manufacturer TEXT,
+  price REAL,
+  score REAL,
+  tier TEXT,                                            -- 'likely' (prefix of the name, or very close) or 'guess'
+  alts TEXT,                                            -- JSON: the next best candidates
+  searched TEXT,                                        -- the Hebrew the English name was searched as
+  made_at INTEGER NOT NULL,
+  PRIMARY KEY (household_id, item_id, chain)
+);
+CREATE TABLE translations (                             -- English phrase -> Hebrew search words, asked of an AI once and kept
+  en TEXT PRIMARY KEY,
+  he TEXT NOT NULL,
+  source TEXT NOT NULL,
+  made_at INTEGER NOT NULL
+);
+CREATE TABLE ai_settings (                              -- a person's own AI key for translating English item names (optional)
+  user_id INTEGER PRIMARY KEY,
+  provider TEXT NOT NULL,
+  key_enc TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`,
 ];
 
 export default function register(ctx) {
@@ -170,8 +210,18 @@ export default function register(ctx) {
 
   o.expose?.({ dir, chains, portals, prices }); // tests only
   const auto = createAutoMatcher({ db, prices, chains });
-  compareRoutes(ctx, { chains, dir, prices, auto, oldAfterDays: () => ctx.settings.get('old_after_days', 60) });
+  const suggester = createSuggester({ db, prices });
+  const guesser = createGuesser({ db, prices, suggester, auto });
+  const ai = createAi({ db, secrets: ctx.secrets, options: ctx.options });
+  compareRoutes(ctx, { chains, dir, prices, auto, suggester, guesser, ai, oldAfterDays: () => ctx.settings.get('old_after_days', 60) });
   // 'item-catalog': Add items offers the products of the chosen branches while you type (see catalog.js)
+  // A person's own AI key for translating English item names (optional). The key is stored encrypted and never returned.
+  ctx.routes.get('/ai/settings', async (req) => ({ settings: ai.settings(req.user.id), providers: ai.providers }));
+  ctx.routes.put('/ai/settings', async (req, reply) => {
+    const r = ai.save(req.user.id, req.body || {});
+    return r.error ? reply.code(400).send({ error: r.error }) : r;
+  });
+  ctx.events.on('user.deleted', ({ userId }) => ai.forget(userId));
   ctx.provide('item-catalog', createCatalog({ db, prices, chains, core: ctx.core, auto }));
   portalRoutes(ctx, { chains, dir, portals });
   // 'barcode-lookup': what is this barcode, and what does it cost where you shop (used by the barcode-scan module)

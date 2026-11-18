@@ -1,5 +1,6 @@
 import { publicChain } from './chains.js';
-import { rank, searchStems, isBarcode, packsDiffer, norm } from './matching.js';
+import { isBarcode, packsDiffer, norm } from './matching.js';
+import { translateQuery, looksEnglish, phraseKey } from './translate.js';
 import { productOf, stampToMs } from './prices.js';
 
 const bad = (reply, error, code = 400) => reply.code(code).send({ error });
@@ -9,7 +10,7 @@ const CITY_KEY = /^[\p{L}\d\s'’".\-]{1,60}$/u;
 // Price comparison for one list. Everyone who can see the list can look (a Shopper at the checkout included); choosing cities, chains and
 // branches and matching products to items is an Editor/Owner job. Prices come from the branches' daily files (see prices.js) and are matched
 // to the household's items by a confirmation that is remembered per household, item and chain; receipt prices stay as a labelled fallback.
-export default function compareRoutes(ctx, { chains, dir, prices, auto, oldAfterDays }) {
+export default function compareRoutes(ctx, { chains, dir, prices, auto, suggester, guesser, ai, oldAfterDays }) {
   const { db, core } = ctx;
   const now = () => Date.now();
   const DAY = 86_400_000;
@@ -38,9 +39,10 @@ export default function compareRoutes(ctx, { chains, dir, prices, auto, oldAfter
   function mappingsOf(householdId) {
     const rows = db.prepare('SELECT * FROM product_map WHERE household_id = ?').all(householdId);
     const byKey = new Map(), barcode = new Map();
-    for (const r of rows) {
-      byKey.set(`${r.item_id}|${r.chain}`, r);
-      if (r.status === 'confirmed' && isBarcode(r.code, r.item_type) && !barcode.has(r.item_id)) barcode.set(r.item_id, { code: r.code, chain: r.chain, name: r.name });   // only the user's own choices spread by barcode
+    for (const r of rows) byKey.set(`${r.item_id}|${r.chain}`, r);
+    // A barcode spreads to the other chains from the user's own choices first, then from a product matched because the item's name is exactly its name.
+    for (const accept of [(r) => r.status === 'confirmed', (r) => r.status === 'auto' && r.auto_via === 'name']) {
+      for (const r of rows) if (accept(r) && isBarcode(r.code, r.item_type) && !barcode.has(r.item_id)) barcode.set(r.item_id, { code: r.code, chain: r.chain, name: r.name });
     }
     return { byKey, barcode };
   }
@@ -84,7 +86,7 @@ export default function compareRoutes(ctx, { chains, dir, prices, auto, oldAfter
         const lineTotal = round2(product.price * it.quantity * (amountKg ?? 1));
         const seen = stampToMs(r.row.seen_file);
         const old = !!seen && now() - seen > oldMs;
-        line = { itemId: it.itemId, name: it.name, quantity: it.quantity, via: r.via, autoFrom: r.via === 'auto' ? r.m.source_chain : undefined, product, amountKg, lineTotal, old };
+        line = { itemId: it.itemId, name: it.name, quantity: it.quantity, via: r.via, autoFrom: r.via === 'auto' ? r.m.source_chain : undefined, autoVia: r.via === 'auto' ? (r.m.auto_via ?? 'equivalent') : undefined, product, amountKg, lineTotal, old };
       }
       if (!line && missing !== 'marked' && receiptStores.length) {
         const p = core.lastPaid({ itemId: it.itemId, storeIds: receiptStores, userId });
@@ -113,6 +115,14 @@ export default function compareRoutes(ctx, { chains, dir, prices, auto, oldAfter
     const byChain = new Map();
     for (const s of selection) if (s.branchId && prices.stateOf(s.chain, s.branchId)?.file_stamp) { if (!byChain.has(s.chain)) byChain.set(s.chain, []); byChain.get(s.chain).push(s.branchId); }
     auto.run({ householdId: acc.list.household_id, items, byChain, maps });
+    // What each item probably is at each chain, worked out a little at a time: names that are exactly a product's name are matched here,
+    // the rest are kept as guesses for the one-tap review. The list's open items come first, then its past items (so they are ready when added).
+    const known = new Set(items.map((i) => i.itemId));
+    const forGuessing = [...items, ...core.listPastItems(acc.list.id).filter((p) => !known.has(p.itemId))];
+    const guessing = guesser.run({ householdId: acc.list.household_id, items: forGuessing, byChain, maps });
+    // English names the dictionary cannot fully translate are put to the person's own AI (when they have saved a key); the answers are kept.
+    const xlat = suggester.loadTranslations();
+    const aiStatus = ai.ensure(req.user.id, forGuessing.filter((i) => looksEnglish(i.name) && !translateQuery(i.name, { cache: xlat }).complete).map((i) => phraseKey(i.name)));
 
     // A chain chosen without a branch has no shelf prices: it is priced from receipts only (and says so in the screen).
     const withBranch = new Set(selection.filter((s) => s.branchId).map((s) => s.chain));
@@ -131,13 +141,13 @@ export default function compareRoutes(ctx, { chains, dir, prices, auto, oldAfter
       const ids = rows[0]?.needsMatch.map((m) => m.itemId).filter((id) => rows.every((r) => r.needsMatch.some((m) => m.itemId === id))) ?? [];
       if (!ids.length) continue;
       const ch = chains.get(chainId);
-      matchGroups.push({ chain: chainId, nameEn: ch.nameEn, nameHe: ch.nameHe, items: rows[0].needsMatch.filter((m) => ids.includes(m.itemId)) });
+      matchGroups.push({ chain: chainId, nameEn: ch.nameEn, nameHe: ch.nameHe, items: rows[0].needsMatch.filter((m) => ids.includes(m.itemId)).map((m) => ({ ...m, guess: guesser.guessOf(acc.list.household_id, m.itemId, chainId) })) });
     }
     const st = prices.status();
     const ok = st?.results?.filter((x) => x.ok && !x.skipped).length ?? 0, same = st?.results?.filter((x) => x.ok && x.skipped).length ?? 0, failed = st?.results?.filter((x) => !x.ok).length ?? 0;
     return {
       canEdit: core.canEdit(acc), chains: chains.all().map(publicChain), stores: storesOf(acc.list.household_id), selection, cities: citiesOf(acc.list.id),
-      results, matchGroups, openCount: items.length,
+      results, matchGroups, openCount: items.length, guessing: { pending: guessing.pending, madeNow: guessing.made + guessing.exact }, ai: aiStatus,
       prices: {
         running: !!st?.running, done: st?.done ?? 0, total: st?.total ?? 0, current: st?.current ?? null, startedNow: !!started.started,
         refreshHours: prices.interval() / 3_600_000, oldAfterDays: oldAfterDays(),
@@ -207,7 +217,7 @@ export default function compareRoutes(ctx, { chains, dir, prices, auto, oldAfter
 
   /* ---------- matching: which product at this chain is this item? ---------- */
 
-  const mappingShape = (m) => !m ? null : ({ status: m.status, code: m.code, name: m.name, amountKg: m.amount_kg, confirmedAt: m.confirmed_at, autoFrom: m.status === 'auto' ? m.source_chain : null });
+  const mappingShape = (m) => !m ? null : ({ status: m.status, code: m.code, name: m.name, amountKg: m.amount_kg, confirmedAt: m.confirmed_at, autoFrom: m.status === 'auto' ? m.source_chain : null, autoVia: m.status === 'auto' ? (m.auto_via ?? 'equivalent') : null });
   const chainBranches = (acc, chain) => selectionOf(acc.list.id).filter((s) => s.chain === chain && s.branchId).map((s) => s.branchId);
 
   // Candidates for one item at one chain, from the list's selected branches of that chain. `q` lets the user search with other words.
@@ -225,14 +235,14 @@ export default function compareRoutes(ctx, { chains, dir, prices, auto, oldAfter
     const withData = branches.filter((b) => prices.stateOf(chain, b)?.file_stamp);
     const out = { item: { id: item.id, name: item.name }, chain, query: q, current: mappingShape(current), viaBarcode: null, candidates: [], branches: branches.length, noData: withData.length === 0 };
     if (!withData.length) return out;
-    const rows = prices.candidateRows(chain, withData, searchStems(q));
-    let cands = rank(q, rows.map(productOf), { limit: 8 });
+    let cands = suggester.candidates({ name: q, chain, branchIds: withData, limit: 8, xlat: suggester.loadTranslations() });
+    if (looksEnglish(q)) out.searchedAs = translateQuery(q, { cache: suggester.loadTranslations() }).segments.map((s) => s.variants[0]).filter(Boolean).join(' · ') || null;
     if (bc && bc.chain !== chain) {
       // The same barcode at this chain is the same product: offered first (and used automatically until the user chooses otherwise).
       const hit = withData.map((b) => prices.priceAt(chain, b, bc.code)).find(Boolean);
       if (hit) { out.viaBarcode = { code: bc.code, name: hit.name, from: bc.chain }; cands = [{ ...productOf(hit), score: 2, barcodeMatch: true }, ...cands.filter((c) => c.code !== bc.code)]; }
     }
-    out.candidates = cands.map((c) => ({ code: c.code, itemType: c.itemType, name: c.name, manufacturer: c.manufacturer, price: c.price, unitPrice: c.unitPrice, unit: c.unit, unitPer: c.unitPer, weighted: c.weighted, pack: c.pack, score: c.score, barcodeMatch: !!c.barcodeMatch }));
+    out.candidates = cands.map((c) => ({ code: c.code, itemType: c.itemType, name: c.name, description: c.description || '', manufacturer: c.manufacturer, price: c.price, unitPrice: c.unitPrice, unit: c.unit, unitPer: c.unitPer, weighted: c.weighted, pack: c.pack, score: c.score, barcodeMatch: !!c.barcodeMatch }));
     return out;
   });
 
@@ -249,7 +259,7 @@ export default function compareRoutes(ctx, { chains, dir, prices, auto, oldAfter
         ON CONFLICT(household_id, item_id, chain) DO UPDATE SET status = 'none', code = NULL, item_type = NULL, name = NULL, manufacturer = NULL, pack_amount = NULL, pack_unit = NULL, weighted = NULL, amount_kg = NULL,
           source_chain = NULL, source_code = NULL, confirmed_by = excluded.confirmed_by, confirmed_at = excluded.confirmed_at`)
         .run(acc.list.household_id, item.id, b.chain, req.user.id, now());
-      auto.forgetDerived(acc.list.household_id, item.id, b.chain);
+      auto.forgetDerived(acc.list.household_id, item.id, b.chain); guesser.forget(acc.list.household_id, item.id, b.chain);
     } else {
       if (typeof b.code !== 'string' || !b.code || b.code.length > 40) return bad(reply, 'invalid_value');
       const row = chainBranches(acc, b.chain).map((id) => prices.priceAt(b.chain, id, b.code)).find(Boolean);
@@ -264,9 +274,44 @@ export default function compareRoutes(ctx, { chains, dir, prices, auto, oldAfter
         ON CONFLICT(household_id, item_id, chain) DO UPDATE SET status = 'confirmed', code = excluded.code, item_type = excluded.item_type, name = excluded.name, manufacturer = excluded.manufacturer,
           pack_amount = excluded.pack_amount, pack_unit = excluded.pack_unit, weighted = excluded.weighted, amount_kg = excluded.amount_kg, source_chain = NULL, source_code = NULL, confirmed_by = excluded.confirmed_by, confirmed_at = excluded.confirmed_at`)
         .run(acc.list.household_id, item.id, b.chain, row.code, row.item_type, row.name, row.manufacturer || '', row.pack_amount, row.pack_unit, row.weighted, amountKg, req.user.id, now());
-      auto.forgetDerived(acc.list.household_id, item.id, b.chain);      // what was carried over from the old choice is worked out again
+      auto.forgetDerived(acc.list.household_id, item.id, b.chain); guesser.forget(acc.list.household_id, item.id, b.chain);      // what was carried over from the old choice is worked out again
     }
     return { mapping: mappingShape(db.prepare('SELECT * FROM product_map WHERE household_id = ? AND item_id = ? AND chain = ?').get(acc.list.household_id, item.id, b.chain)) };
+  });
+
+  // Accept the pre-filled suggestions: { chain, itemIds? } confirms the kept suggestion of each given item (all of the chain's when none are given) exactly as if the
+  // user had chosen that product. Only suggestions that are still on offer at a chosen branch are taken. Editors and Owners only.
+  ctx.routes.post('/lists/:id/matches/accept', async (req, reply) => {
+    const acc = core.listAccess(req.user, req.params.id);
+    if (!acc) return bad(reply, 'not_found', 404);
+    if (!core.canEdit(acc)) return bad(reply, 'forbidden', 403);
+    const b = req.body || {};
+    if (typeof b.chain !== 'string' || !chains.usable(b.chain)) return bad(reply, 'not_found', 404);
+    const hid = acc.list.household_id;
+    const branches = chainBranches(acc, b.chain);
+    const ids = Array.isArray(b.itemIds) ? b.itemIds.map(Number) : core.listOpenEntries(acc.list.id).map((e) => e.itemId);
+    const confirm = db.prepare(`INSERT INTO product_map(household_id, item_id, chain, status, code, item_type, name, manufacturer, pack_amount, pack_unit, weighted, amount_kg, source_chain, source_code, auto_via, confirmed_by, confirmed_at)
+      VALUES (?,?,?,'confirmed',?,?,?,?,?,?,?,?,NULL,NULL,NULL,?,?)
+      ON CONFLICT(household_id, item_id, chain) DO UPDATE SET status = 'confirmed', code = excluded.code, item_type = excluded.item_type, name = excluded.name, manufacturer = excluded.manufacturer,
+        pack_amount = excluded.pack_amount, pack_unit = excluded.pack_unit, weighted = excluded.weighted, amount_kg = excluded.amount_kg, source_chain = NULL, source_code = NULL, auto_via = NULL,
+        confirmed_by = excluded.confirmed_by, confirmed_at = excluded.confirmed_at`);
+    let accepted = 0;
+    db.transaction(() => {
+      for (const id of ids) {
+        if (!core.itemInHousehold(hid, id)) continue;
+        const existing = db.prepare('SELECT status FROM product_map WHERE household_id = ? AND item_id = ? AND chain = ?').get(hid, id, b.chain);
+        if (existing && existing.status !== 'auto') continue;                       // the user's own choice is never replaced
+        const g = guesser.guessOf(hid, id, b.chain);
+        if (!g?.product) continue;
+        const row = branches.map((br) => prices.priceAt(b.chain, br, g.product.code)).find(Boolean);
+        if (!row) continue;
+        confirm.run(hid, id, b.chain, row.code, row.item_type, row.name, row.manufacturer || '', row.pack_amount, row.pack_unit, row.weighted, row.weighted ? 1 : null, req.user.id, now());
+        auto.forgetDerived(hid, id, b.chain);
+        guesser.forget(hid, id, b.chain);
+        accepted++;
+      }
+    })();
+    return { accepted };
   });
 
   // Forget a confirmation (the barcode rule or a new search can then suggest again).

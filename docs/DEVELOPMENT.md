@@ -9,6 +9,7 @@ cd web && npm install && npm run dev      # Vite on :5173, proxies /api to :3000
 node scripts/build-modules.mjs            # after changing a module's browser code
 python e2e/make_receipts.py && python e2e/e2e.py   # real-browser test incl. real OCR (see the header of e2e.py)
 python e2e/make_barcodes.py && python e2e/e2e_scan.py   # barcode scanning with a fake camera (see the header of e2e_scan.py)
+python e2e/e2e_match.py                                 # automatic matching in Compare prices (see the header of e2e_match.py)
 ```
 
 The web app is type-checked with `cd web && npx tsc --noEmit` and, for module sources, `npx tsc --noEmit -p tsconfig.modules.json`.
@@ -30,7 +31,7 @@ server/src/modules/       module system: manifest checks, zip install, loader, e
 server/src/routes/        auth, admin, lists, shopping, households, history, itemsCsv, modules
 server/test/              node:test API tests
 modules/receipt-ocr/      Tesseract + cloud receipt reading
-modules/price-compare/    supermarket portals, branch directory, price comparison, item suggestions, barcode lookup
+modules/price-compare/    supermarket portals, branch directory, price comparison, item suggestions, barcode lookup, automatic matching (matching.js scoring, lexicon.js + translate.js English to Hebrew, suggest.js tiers, guesses.js, ai.js optional translation)
 modules/barcode-scan/     scanning barcodes with the camera (bundles ZXing's EAN readers from web/node_modules)
 modules/lang-he/          Hebrew interface text (a language module)
 scripts/                  set-version.sh, build-modules.mjs, module-lock.mjs

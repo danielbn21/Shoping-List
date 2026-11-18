@@ -12,6 +12,9 @@ const coded = (code, message) => Object.assign(new Error(message || code), { cod
 export const stampToMs = (stamp) => { const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(stamp || ''); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : null; };
 
 // One PriceFull file -> { header, items }. Rows without a usable price or name, and deposit lines (פיקדון), are left out.
+// The chain's own longer text for the product (ManufactureItemDescription), kept only when it says more than the name does.
+const describe = (name, text) => { const d = String(text ?? '').trim().replace(/\s+/g, ' '); return d && norm(d) !== norm(name) ? d.slice(0, 200) : ''; };
+
 export function parsePriceXml(xml) {
   const header = headerOf(xml);
   const items = [];
@@ -25,6 +28,7 @@ export function parsePriceXml(xml) {
       code, itemType: it.itemtype === '0' ? 0 : 1, name, manufacturer: (it.manufacturename || it.manufacturername || '').replace(/^לא ידוע$/, ''),
       price, unitPrice: unitPrice > 0 ? unitPrice : null, unit: unit && unit.unit !== 'unspecified' ? unit.unit : '', unitPer: unit && unit.unit !== 'unspecified' ? unit.per : 0,
       packAmount: pack?.amount ?? null, packUnit: pack?.unit ?? null, weighted: it.bisweighted === '1' ? 1 : 0, priceUpdated: it.priceupdatetime || null,
+      description: describe(name, it.manufactureitemdescription),
     });
   }
   return { header, items };
@@ -32,18 +36,18 @@ export function parsePriceXml(xml) {
 
 export function createPrices({ db, portals, chains, now = Date.now, delayMs = 400, refreshHours = () => 24, log }) {
   const getState = db.prepare('SELECT * FROM branch_price_state WHERE chain = ? AND store_id = ?');
-  const put = db.prepare(`INSERT INTO branch_prices(chain, store_id, code, item_type, name, name_norm, manufacturer, price, unit_price, unit, unit_per, pack_amount, pack_unit, weighted, price_updated, seen_file)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  const put = db.prepare(`INSERT INTO branch_prices(chain, store_id, code, item_type, name, name_norm, manufacturer, price, unit_price, unit, unit_per, pack_amount, pack_unit, weighted, price_updated, seen_file, description, desc_norm)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(chain, store_id, code) DO UPDATE SET item_type = excluded.item_type, name = excluded.name, name_norm = excluded.name_norm, manufacturer = excluded.manufacturer,
       price = excluded.price, unit_price = excluded.unit_price, unit = excluded.unit, unit_per = excluded.unit_per, pack_amount = excluded.pack_amount, pack_unit = excluded.pack_unit,
-      weighted = excluded.weighted, price_updated = excluded.price_updated, seen_file = excluded.seen_file`);
+      weighted = excluded.weighted, price_updated = excluded.price_updated, seen_file = excluded.seen_file, description = excluded.description, desc_norm = excluded.desc_norm`);
 
   // Merge, never replace: an item that is not in the new file keeps its price (and its old "seen" stamp, which is how an old price is recognised).
   function ingest(chainId, storeId, file, stamp, items) {
     db.transaction(() => {
-      for (const i of items) put.run(chainId, storeId, i.code, i.itemType, i.name, norm(i.name), i.manufacturer, i.price, i.unitPrice, i.unit, i.unitPer, i.packAmount, i.packUnit, i.weighted, i.priceUpdated, stamp);
-      db.prepare(`INSERT INTO branch_price_state(chain, store_id, file, file_stamp, items, checked_at, updated_at, error, error_at) VALUES (?,?,?,?,?,?,?,NULL,NULL)
-        ON CONFLICT(chain, store_id) DO UPDATE SET file = excluded.file, file_stamp = excluded.file_stamp, items = excluded.items, checked_at = excluded.checked_at, updated_at = excluded.updated_at, error = NULL, error_at = NULL`)
+      for (const i of items) put.run(chainId, storeId, i.code, i.itemType, i.name, norm(i.name), i.manufacturer, i.price, i.unitPrice, i.unit, i.unitPer, i.packAmount, i.packUnit, i.weighted, i.priceUpdated, stamp, i.description, norm(i.description));
+      db.prepare(`INSERT INTO branch_price_state(chain, store_id, file, file_stamp, items, checked_at, updated_at, error, error_at, desc_ok) VALUES (?,?,?,?,?,?,?,NULL,NULL,1)
+        ON CONFLICT(chain, store_id) DO UPDATE SET file = excluded.file, file_stamp = excluded.file_stamp, items = excluded.items, checked_at = excluded.checked_at, updated_at = excluded.updated_at, error = NULL, error_at = NULL, desc_ok = 1`)
         .run(chainId, storeId, file, stamp, items.length, now(), now());
     })();
   }
@@ -62,7 +66,7 @@ export function createPrices({ db, portals, chains, now = Date.now, delayMs = 40
       if (!newest) throw coded('no_pricefull', 'no PriceFull file is published for this branch (closed today?)');
       const stamp = stampOf(newest.name);
       const st = getState.get(chain.id, storeId);
-      if (st?.file_stamp && stamp && st.file_stamp >= stamp) { markChecked(chain.id, storeId); return { ok: true, skipped: 'same_file', file: st.file }; }
+      if (st?.file_stamp && st.desc_ok && stamp && st.file_stamp >= stamp) { markChecked(chain.id, storeId); return { ok: true, skipped: 'same_file', file: st.file }; }
       const f = await access.priceFull(storeId, list);
       const parsed = parsePriceXml(decodeXmlBytes(f.bytes));
       if (!parsed.items.length) throw coded('empty_file', 'the PriceFull file has no usable items');
@@ -133,9 +137,9 @@ export function createPrices({ db, portals, chains, now = Date.now, delayMs = 40
   // Distinct products (by code) over several branches of one chain whose normalised name contains any of the stems.
   function candidateRows(chain, storeIds, stems, limit = 3000) {
     if (!storeIds.length || !stems.length) return [];
-    const like = stems.map(() => 'name_norm LIKE ?').join(' OR ');
+    const like = stems.map(() => '(name_norm LIKE ? OR desc_norm LIKE ?)').join(' OR ');
     return db.prepare(`SELECT * FROM branch_prices WHERE chain = ? AND store_id IN (${storeIds.map(() => '?').join(',')}) AND (${like}) GROUP BY code LIMIT ?`)
-      .all(chain, ...storeIds.map(String), ...stems.map((s) => `%${s}%`), limit);
+      .all(chain, ...storeIds.map(String), ...stems.flatMap((s) => [`%${s}%`, `%${s}%`]), limit);
   }
   const stateOf = (chain, storeId) => getState.get(chain, String(storeId));
   // The product with exactly this (normalised) name at a branch, when there is exactly one: the same product under another code.
@@ -147,7 +151,7 @@ export function createPrices({ db, portals, chains, now = Date.now, delayMs = 40
 
 export const productOf = (r) => r && ({
   code: r.code, itemType: r.item_type, name: r.name, manufacturer: r.manufacturer, price: r.price, unitPrice: r.unit_price, unit: r.unit, unitPer: r.unit_per,
-  weighted: !!r.weighted, pack: r.pack_amount ? { amount: r.pack_amount, unit: r.pack_unit } : null, seenFile: r.seen_file, priceUpdated: r.price_updated,
+  description: r.description || '', weighted: !!r.weighted, pack: r.pack_amount ? { amount: r.pack_amount, unit: r.pack_unit } : null, seenFile: r.seen_file, priceUpdated: r.price_updated,
 });
 export const DEFAULT_OLD_AFTER_DAYS = 60;
 export const OLD_AFTER_MS = DEFAULT_OLD_AFTER_DAYS * DAY;
