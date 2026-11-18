@@ -40,6 +40,10 @@ Receipt reading, price comparison, barcode scanning and the Hebrew language are 
 - **Cloud (optional, per user):** in Settings a user chooses a provider (Anthropic, OpenAI or Google) and pastes their own API key. The key is encrypted at rest (`data/secret.key`) and never shown again. With the engine on *Automatic*, cloud is used only when the user has saved a key; *Local only* keeps photos on the server. When cloud is used, the receipt photo is sent to that provider.
 - The admin can switch receipt scanning off entirely (Server settings). Receipt photos live in `data/receipts/` and are deleted with their household.
 
+## English item names and an optional AI key (price comparison)
+
+Items typed in English are translated to Hebrew search words by a dictionary built into the price comparison module; nothing leaves the server. A person can also save their own AI key (Settings, same providers as receipt reading); then English names the dictionary does not know are sent to that provider, **only the item names**, once each, and the answer is kept for everybody. The key is stored encrypted and never shown again. Without a key nothing is sent.
+
 ## Upgrading
 
 Recommended: **`./update.sh`** (pulls from GitHub, builds first, backs up `data/`, starts the new version, checks it, and rolls back by itself if it fails). Also `./update.sh --tag v1.5.0` (any tag), `--rollback` and `--dry-run`. By hand:

@@ -48,7 +48,7 @@ export default function CompareTab({ data, reload }: { data: Detail; reload: () 
   // While prices are being read, look again every couple of seconds.
   useEffect(() => {
     clearTimeout(timer.current);
-    if (c?.prices.running) timer.current = setTimeout(load, 2000);
+    if (c?.prices.running || (c?.guessing?.pending ?? 0) > 0 || c?.ai?.running) timer.current = setTimeout(load, 2000);
     return () => clearTimeout(timer.current);
   }, [c, load]);
   useEffect(() => () => clearTimeout(noticeTimer.current), []);
@@ -89,11 +89,19 @@ export default function CompareTab({ data, reload }: { data: Detail; reload: () 
   const chainName = (id: string) => { const ch = c.chains.find((x) => x.id === id); return ch ? (getLang() === 'he' ? ch.nameHe : ch.nameEn) : id; };
   const toggle = (k: string) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const openMatch = (k: string, chain: string, m: Missing) => setMatching(matching?.key === k ? null : { key: k, chain, item: { id: m.itemId, name: m.name } });
+  // One tap: accept the suggestion for one item, or for every item of the chain that has one.
+  const accept = async (chain: string, itemIds?: number[]) => {
+    try {
+      const r = await api<{ accepted: number }>(`/lists/${data.list.id}/matches/accept`, { method: 'POST', body: { chain, ...(itemIds ? { itemIds } : {}) } });
+      say({ kind: 'ok', text: t('compareAccepted', { n: r.accepted }) });
+      await load();
+    } catch (e) { setError(errText(e)); }
+  };
   const panel = (k: string, chain: string) => matching?.key === k && <MatchPanel listId={data.list.id} chain={chain} item={matching.item} canEdit={c.canEdit} onDone={done} chainName={chainName} />;
 
   const lineNote = (l: Line) => {
     const parts: string[] = [];
-    if (l.via === 'auto') parts.push(t('compareAutoFrom', { chain: chainName(l.autoFrom ?? '') }));
+    if (l.via === 'auto') parts.push(l.autoVia === 'name' ? t('compareAutoByName') : t('compareAutoFrom', { chain: chainName(l.autoFrom ?? '') }));
     if (l.via === 'sameName') parts.push(t('compareSameName'));
     if (l.via === 'barcode') parts.push(t('compareViaBarcode'));
     if (l.via === 'receipt') parts.push(t('compareViaReceipt'));
@@ -137,9 +145,16 @@ export default function CompareTab({ data, reload }: { data: Detail; reload: () 
         <section className="card stack-sm" style={{ borderColor: 'var(--danger)' }} aria-label={t('compareToMatchTitle')}>
           <h3 style={{ margin: 0 }} className="error">⚠ {t('compareToMatchTitle')}</h3>
           <p className="muted" style={{ margin: 0 }}>{c.canEdit ? t('compareToMatchHelp') : t('compareOnlyEditors')}</p>
+          {(c.guessing?.pending ?? 0) > 0 && <p className="muted" style={{ margin: 0 }} role="status">{t('compareGuessing', { n: c.guessing?.pending ?? 0 })}</p>}
+          {c.ai?.running && <p className="muted" style={{ margin: 0 }} role="status">{t('compareAiRunning')}</p>}
+          {c.ai?.error && <p className="error" style={{ margin: 0 }}>{t('compareAiError', { error: c.ai.error })}</p>}
+          {c.canEdit && c.ai && !c.ai.enabled && c.matchGroups.some((g) => g.items.some((m) => !m.guess?.product && /[a-z]{2}/i.test(m.name))) && <p className="muted" style={{ margin: 0 }}>{t('compareAiHint')}</p>}
           {c.matchGroups.map((g) => (
             <div key={g.chain} className="stack-sm">
-              <strong>{t('compareToMatchChain', { chain: getLang() === 'he' ? g.nameHe : g.nameEn, n: g.items.length })}</strong>
+              <div className="row between">
+                <strong>{t('compareToMatchChain', { chain: getLang() === 'he' ? g.nameHe : g.nameEn, n: g.items.length })}</strong>
+                {c.canEdit && g.items.filter((m) => m.guess?.product).length > 1 && <button className="btn small primary" onClick={() => accept(g.chain, g.items.filter((m) => m.guess?.product).map((m) => m.itemId))}>{t('compareAcceptAll', { n: g.items.filter((m) => m.guess?.product).length })}</button>}
+              </div>
               <ul className="plain stack-sm">
                 {g.items.map((m) => {
                   const k = `g:${g.chain}:${m.itemId}`;
@@ -147,8 +162,19 @@ export default function CompareTab({ data, reload }: { data: Detail; reload: () 
                     <li key={k}>
                       <div className="row between">
                         <span className="grow" dir="auto">{m.name}{m.quantity !== 1 ? ` × ${m.quantity}` : ''}</span>
-                        {c.canEdit && <button className="btn small" onClick={() => openMatch(k, g.chain, m)}>{t('compareMatchBtn')}</button>}
+                        {c.canEdit && <button className="btn small" onClick={() => openMatch(k, g.chain, m)}>{m.guess?.product ? t('compareChangeBtn') : t('compareMatchBtn')}</button>}
                       </div>
+                      {m.guess?.product && (
+                        <div className="row between" style={{ alignItems: 'flex-start', marginTop: 4 }}>
+                          <span className="grow">
+                            <span className="chip">{m.guess.tier === 'likely' ? t('compareLikely') : t('compareGuess')}</span>{' '}
+                            <bdi dir="auto"><strong>{m.guess.product.name}</strong></bdi>
+                            <span className="muted" style={{ display: 'block' }}><Parts parts={[m.guess.product.manufacturer, m.guess.product.price != null ? formatMoney(m.guess.product.price, 'ILS') : null, m.guess.searched ? t('compareSearchedAs', { words: m.guess.searched }) : null]} /></span>
+                          </span>
+                          {c.canEdit && <button className="btn small primary" onClick={() => accept(g.chain, [m.itemId])}>{t('compareAccept')}</button>}
+                        </div>
+                      )}
+
                       {panel(k, g.chain)}
                     </li>
                   );

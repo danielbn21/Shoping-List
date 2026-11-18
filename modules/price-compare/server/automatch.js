@@ -1,4 +1,4 @@
-import { norm, rank, searchStems, tokens, packsDiffer } from './matching.js';
+import { norm, rank, searchStems, tokens, packsDiffer, isBarcode } from './matching.js';
 import { productOf } from './prices.js';
 
 // Matching once for everything. A choice the household confirms at one chain is carried to the other chains by itself when the product is
@@ -31,8 +31,8 @@ export function strongMatch(source, rows) {
 export function createAutoMatcher({ db, prices, chains, now = Date.now }) {
   const tried = new Map(); // 'household|item|chain' -> what was true when we last tried and found nothing
 
-  const upsertAuto = db.prepare(`INSERT INTO product_map(household_id, item_id, chain, status, code, item_type, name, manufacturer, pack_amount, pack_unit, weighted, amount_kg, source_chain, source_code, confirmed_by, confirmed_at)
-    VALUES (?,?,?,'auto',?,?,?,?,?,?,?,?,?,?,NULL,?) ON CONFLICT(household_id, item_id, chain) DO NOTHING`);
+  const upsertAuto = db.prepare(`INSERT INTO product_map(household_id, item_id, chain, status, code, item_type, name, manufacturer, pack_amount, pack_unit, weighted, amount_kg, source_chain, source_code, auto_via, confirmed_by, confirmed_at)
+    VALUES (?,?,?,'auto',?,?,?,?,?,?,?,?,?,?,?,NULL,?) ON CONFLICT(household_id, item_id, chain) DO NOTHING`);
 
   // items: the list's open items; byChain: Map chain -> branch ids that have prices; maps: current mappings. Returns how many were created.
   function run({ householdId, items, byChain, maps }) {
@@ -59,8 +59,8 @@ export function createAutoMatcher({ db, prices, chains, now = Date.now }) {
         const { best, src } = [...found.values()][0];
         const row = rowsOf(chainId, branchIds, best.code);
         upsertAuto.run(householdId, it.itemId, chainId, best.code, row?.item_type ?? 1, best.name, best.manufacturer || '', best.pack?.amount ?? null, best.pack?.unit ?? null,
-          best.weighted ? 1 : 0, best.weighted ? (src.amount_kg ?? 1) : null, src.chain, src.code, now());
-        maps.byKey.set(`${it.itemId}|${chainId}`, { household_id: householdId, item_id: it.itemId, chain: chainId, status: 'auto', code: best.code, name: best.name, amount_kg: best.weighted ? (src.amount_kg ?? 1) : null, source_chain: src.chain });
+          best.weighted ? 1 : 0, best.weighted ? (src.amount_kg ?? 1) : null, src.chain, src.code, 'equivalent', now());
+        maps.byKey.set(`${it.itemId}|${chainId}`, { household_id: householdId, item_id: it.itemId, chain: chainId, status: 'auto', code: best.code, name: best.name, amount_kg: best.weighted ? (src.amount_kg ?? 1) : null, source_chain: src.chain, auto_via: 'equivalent' });
         made++;
       }
     }
@@ -71,5 +71,16 @@ export function createAutoMatcher({ db, prices, chains, now = Date.now }) {
   // A confirmed choice changed or was forgotten: what was derived from it is derived again.
   const forgetDerived = (householdId, itemId, sourceChain) => db.prepare("DELETE FROM product_map WHERE household_id = ? AND item_id = ? AND status = 'auto' AND source_chain = ?").run(householdId, itemId, sourceChain);
 
-  return { run, forgetDerived };
+  // The item's name is the product's name: matched without anyone being asked (the screen says "matched by name"). A weighed product is
+  // counted as one kilo per list entry until the user says otherwise.
+  function applyExact({ householdId, itemId, chain, product, maps }) {
+    const kg = product.weighted ? 1 : null;
+    upsertAuto.run(householdId, itemId, chain, product.code, product.itemType ?? 1, product.name, product.manufacturer || '', product.pack?.amount ?? null, product.pack?.unit ?? null,
+      product.weighted ? 1 : 0, kg, null, null, 'name', now());
+    maps.byKey.set(`${itemId}|${chain}`, { household_id: householdId, item_id: itemId, chain, status: 'auto', code: product.code, item_type: product.itemType ?? 1, name: product.name, amount_kg: kg, source_chain: null, auto_via: 'name' });
+    // its barcode now prices the item at the other chains too (in this same request), unless the user's own choice already provides one
+    if (isBarcode(product.code, product.itemType ?? 1) && !maps.barcode.has(itemId)) maps.barcode.set(itemId, { code: product.code, chain, name: product.name });
+  }
+
+  return { run, forgetDerived, applyExact };
 }

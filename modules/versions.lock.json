@@ -1,15 +1,15 @@
 {
   "barcode-scan": {
-    "version": "1.1.0",
-    "sha256": "3bd0b7b678ab6513ebff3a6f2bf4832e9527458cc8281d704eb19e8adbe705cc"
+    "version": "1.0.1",
+    "sha256": "991150affd64b866c653febb7468d88dce8ca6be4e3bd95fba5ae4866f19f0c3"
   },
   "lang-he": {
-    "version": "1.2.1",
-    "sha256": "163c9ad7b2a2b4b218eee315e6b4c5a718efc44ce6c9944aa683b8976f74d0dd"
+    "version": "1.3.0",
+    "sha256": "59ea747360b0be57a1ab8c53f89eb32381aceea82d58f26ef8a7833a4c3a6f30"
   },
   "price-compare": {
-    "version": "1.4.0",
-    "sha256": "39ec79669b175cd6354f3ebebe4a209f51c7f734928c0c42375c060cd70edbf8"
+    "version": "1.5.0",
+    "sha256": "d5951d4264581bb4cca5bae6d4fbf6638140f99b7d61f932ccbadd42eda18971"
   },
   "receipt-ocr": {
     "version": "1.0.1",

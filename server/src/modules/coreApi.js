@@ -3,7 +3,7 @@ import { audit, getSetting, cleanName } from '../util.js';
 import { findReceiptMatch, normalize, isHebrew } from '../match.js';
 import { addToList, checkEntry } from '../entries.js';
 
-// The API modules get instead of SQL access to the core database. Everything here is read-only apart from audit(), scanItem() and renameItem().
+// The API modules get instead of SQL access to the core database. Everything here is read-only apart from audit() and scanItem().
 // Each function takes the acting user's row (req.user) where permissions matter, so a module can never see more than the user may.
 export function makeCoreApi(app) {
   const db = app.db;
@@ -27,6 +27,8 @@ export function makeCoreApi(app) {
     listOpenEntries: (listId) => db.prepare(`SELECT e.item_id AS itemId, e.quantity, i.name FROM list_entries e JOIN items i ON i.id = e.item_id
       WHERE e.list_id = ? AND e.deleted = 0 AND e.state = 'open' ORDER BY e.position, e.id`).all(Number(listId)),
     // An item of the household's item bank ({ id, name }), or null when it is not one of the household's.
+    // The items a list has had (its "past items"), most recently added first. Read-only; archived items are left out.
+    listPastItems: (listId) => db.prepare(`SELECT i.id AS itemId, i.name FROM list_items li JOIN items i ON i.id = li.item_id WHERE li.list_id = ? AND i.archived = 0 ORDER BY li.added_at DESC, i.id LIMIT 500`).all(Number(listId)),
     itemInHousehold: (householdId, itemId) => db.prepare('SELECT id, name FROM items WHERE id = ? AND household_id = ? AND archived = 0').get(Number(itemId), Number(householdId)) ?? null,
     // The household's own item that a product name is most like (every word of the item appears in the name), or null: { id, name, categoryId, defaultNote }.
     similarItem: (householdId, name) => {
@@ -55,19 +57,6 @@ export function makeCoreApi(app) {
     //   tick = false (managing): added to the list, or merged into the open entry.
     // Ticking needs any role that can see the list; adding or creating needs Owner or Editor.
     // -> { itemId, name, entryId, action: 'ticked'|'more'|'added_ticked'|'added'|'merged', created, quantity, priceSaved } or { error: 'not_found'|'forbidden'|'invalid_name' }
-    // Renames a household item (the one a barcode points to). The name stays unique in the household. Needs edit rights on the list.
-    renameItem: ({ user, listId, itemId, name }) => {
-      const acc = listAccess(user, Number(listId));
-      if (!acc) return { error: 'not_found' };
-      if (!canEdit(acc)) return { error: 'forbidden' };
-      const item = db.prepare('SELECT id, name FROM items WHERE id = ? AND household_id = ? AND archived = 0').get(Number(itemId), acc.list.household_id);
-      if (!item) return { error: 'not_found' };
-      const nm = cleanName(name ?? '').slice(0, 100), norm = normalize(nm);
-      if (!norm) return { error: 'invalid_name' };
-      if (db.prepare('SELECT 1 FROM items WHERE household_id = ? AND name_norm = ? AND id != ? AND archived = 0').get(acc.list.household_id, norm, item.id)) return { error: 'item_exists' };
-      db.prepare('UPDATE items SET name = ?, name_norm = ? WHERE id = ?').run(nm, norm, item.id);
-      return { itemId: item.id, name: nm, previousName: item.name };
-    },
     scanItem: ({ user, listId, itemId = null, name = null, price = null, tick = false }) => {
       const acc = listAccess(user, Number(listId));
       if (!acc) return { error: 'not_found' };

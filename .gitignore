@@ -9,3 +9,4 @@ backups
 .env
 .fake
 *.log
+shoplist

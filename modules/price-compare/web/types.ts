@@ -2,13 +2,15 @@ export type ChainInfo = { id: string; nameEn: string; nameHe: string; supported:
 export type SelEntry = { chain: string; branchId: string; branchName: string | null; cityKey: string; cityName: string; address: string; banner: string };
 export type Product = {
   code: string; itemType: number; name: string; manufacturer: string; price: number; unitPrice: number | null; unit: string; unitPer: number;
-  weighted: boolean; pack: { amount: number; unit: string } | null;
+  weighted: boolean; pack: { amount: number; unit: string } | null; description?: string;
 };
 export type Line = {
-  itemId: number; name: string; quantity: number; via: 'confirmed' | 'auto' | 'sameName' | 'barcode' | 'receipt'; autoFrom?: string; product: Product | null; amountKg: number | null;
+  itemId: number; name: string; quantity: number; via: 'confirmed' | 'auto' | 'sameName' | 'barcode' | 'receipt'; autoFrom?: string; autoVia?: 'name' | 'barcode' | 'equivalent'; product: Product | null; amountKg: number | null;
   lineTotal: number; old: boolean; sizeDiffers?: boolean; paidAt?: number; unitPrice?: number;
 };
-export type Missing = { itemId: number; name: string; quantity: number };
+// What the module thinks an item is at a chain when it is not sure enough to decide by itself: shown pre-filled, one tap to accept.
+export type Guess = { tier: 'likely' | 'guess' | null; searched: string | null; product: { code: string; name: string; manufacturer: string | null; price: number | null; score: number | null } | null; alts: Product[] };
+export type Missing = { itemId: number; name: string; quantity: number; guess?: Guess | null };
 export type CompareResult = {
   chain: string; nameEn: string; nameHe: string; branchId: string; branchName: string | null; cityName: string; address: string; banner: string;
   total: number | null; priced: number; receiptCount: number; oldCount: number; of: number;
@@ -23,10 +25,11 @@ export type MatchGroup = { chain: string; nameEn: string; nameHe: string; items:
 export type CompareData = {
   canEdit: boolean; chains: ChainInfo[]; stores: { id: number; name: string; chain: string | null }[]; selection: SelEntry[]; cities: { key: string; name: string }[];
   results: CompareResult[]; matchGroups: MatchGroup[]; openCount: number; prices: PricesInfo;
+  guessing?: { pending: number; madeNow: number }; ai?: { enabled: boolean; pending: number; running: boolean; error: string | null };
 };
 export type Candidate = Product & { score: number; barcodeMatch: boolean };
 export type MatchInfo = {
-  item: { id: number; name: string }; chain: string; query: string; noData: boolean; branches: number;
+  item: { id: number; name: string }; chain: string; query: string; searchedAs?: string | null; noData: boolean; branches: number;
   current: { status: 'confirmed' | 'none' | 'auto'; code: string | null; name: string | null; amountKg: number | null; autoFrom: string | null } | null;
   viaBarcode: { code: string; name: string; from: string } | null; candidates: Candidate[];
 };

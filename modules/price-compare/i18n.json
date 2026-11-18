@@ -144,6 +144,24 @@
   "compareMatchAuto": "Matched automatically from {chain}: {name}. Choose another product to change it.",
   "configUpdates": "Price updates",
   "adminOldAfter": "Flag a price as old after (days)",
-  "adminOldAfterHelp": "A price is never deleted. It is only marked when no price file has listed the product for this long."
+  "adminOldAfterHelp": "A price is never deleted. It is only marked when no price file has listed the product for this long.",
+  "compareLikely": "Likely",
+  "compareGuess": "Guess",
+  "compareAccept": "Accept",
+  "compareAcceptAll": "Accept all {n}",
+  "compareChangeBtn": "Change",
+  "compareSearchedAs": "Searched as: {words}",
+  "compareAutoByName": "Matched by name",
+  "compareAccepted": "Accepted {n}.",
+  "compareGuessing": "Looking for matches… {n} left",
+  "compareAiRunning": "Translating English names with your AI…",
+  "compareAiError": "AI translation did not work ({error}).",
+  "compareAiHint": "Tip: save an AI key in Settings and English names the built-in dictionary does not know are translated for you.",
+  "aiTitle": "English item names (optional AI)",
+  "aiHelp": "Items typed in English are looked up among Hebrew product names with a built-in dictionary. If you save your own AI key, names the dictionary does not know are translated by that provider (only the item names are sent, once each).",
+  "aiProvider": "Provider",
+  "aiKey": "API key",
+  "aiKeySaved": "A key is saved. Leave empty to keep it.",
+  "aiRemoveKey": "Remove key"
  }
 }

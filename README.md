@@ -24,7 +24,8 @@ A self-hosted, multi-user shopping list for households. Share lists with the peo
 
 **Price comparison (module)**
 - Compare your list across the branches of twelve Israeli supermarket chains, using the price files the chains publish. Choose cities and branches, see a total and how many items are priced for each branch, and see which items still need matching.
-- You match a product to an item once. Matches are shared by every branch of a chain, and clear matches are carried to other chains automatically, with a label you can change.
+- **Items are matched automatically** where that is certain: an item whose name is a product's name, or the same barcode at another chain. Where it is not certain, the best candidate is shown pre-filled with its alternatives, and accepting it is one tap (or *Accept all* for a chain). Matches are made once per chain for every branch, and a list's past items are matched ahead of time.
+- Items typed in **English** are looked up among Hebrew product names with a built-in dictionary; an optional AI key of your own (Settings) translates the names the dictionary does not know.
 - Receipts fill in prices the chains do not publish, and are marked as such.
 
 **Barcode scanning (module)**

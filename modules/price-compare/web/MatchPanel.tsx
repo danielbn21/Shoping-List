@@ -65,6 +65,7 @@ export default function MatchPanel({ listId, chain, item, canEdit, onDone, chain
     <div className="stack-sm match-panel">
       <p style={{ margin: 0 }}><strong>{t('compareMatchFor')}</strong><bdi dir="auto"> {item.name}</bdi></p>
       {error && <p className="error" role="alert">{error}</p>}
+      {info.searchedAs && <p className="muted" style={{ margin: 0 }}>{t('compareSearchedAs', { words: info.searchedAs })}</p>}
       {info.current?.status === 'confirmed' && <p className="muted" style={{ margin: 0 }}>{t('compareMatchChosen', { name: info.current.name ?? '' })}</p>}
       {info.current?.status === 'auto' && <p className="muted" style={{ margin: 0 }}>{t('compareMatchAuto', { chain: chainName?.(info.current.autoFrom ?? '') ?? '', name: info.current.name ?? '' })}</p>}
       {info.current?.status === 'none' && <p className="muted" style={{ margin: 0 }}>{t('compareNotSoldMarked')}</p>}
@@ -90,7 +91,7 @@ export default function MatchPanel({ listId, chain, item, canEdit, onDone, chain
       {!pick && info.candidates.map((c) => (
         <button key={c.code} className="similar" disabled={busy || !canEdit} onClick={() => choose(c)} style={{ textAlign: 'start', display: 'flex', width: '100%', gap: 8, justifyContent: 'space-between', alignItems: 'flex-start' }} aria-pressed={info.current?.code === c.code}>
           <span className="grow">
-            <strong dir="auto">{c.name}</strong>
+            <strong dir="auto">{c.description || c.name}</strong>
             <span className="muted" style={{ display: 'block' }}><Parts parts={[c.manufacturer, formatPack(c.pack), unitPriceText(c)]} /></span>
             {c.barcodeMatch && <span className="chip">{t('compareViaBarcode')}</span>}
           </span>
