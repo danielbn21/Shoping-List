@@ -13,10 +13,46 @@ B = "http://127.0.0.1:3998"
 errors = []
 
 
-def more(page, name):
-    """Open a secondary tab (Compare prices, List history): on a phone they sit in the tab row's drop-down."""
-    page.locator(".tabmenu > button").click()
+def menu_go(page, name, menu="Menu"):
+    """The burger menu (\u2630) of whatever screen is open: Settings, Admin, Lists, Sign out, or a page of the open list."""
+    page.get_by_role("button", name=menu, exact=True).click()
     page.get_by_role("menuitem", name=name).click()
+
+
+def to_lists(page):
+    """Back to the list of lists: the arrow inside a list, the burger menu on the Settings and Admin screens."""
+    back = page.get_by_role("button", name="All lists")
+    if back.count():
+        back.click()
+    else:
+        menu_go(page, "Lists")
+
+
+def tab(page, name):
+    """A tab of the open list (the bar at the bottom edge of a phone)."""
+    page.get_by_role("button", name=name, exact=True).click()
+
+
+more = tab   # the secondary tabs used to sit in a drop-down; they are bar buttons now
+
+
+def show(page, view):
+    """Manage list: the switch between the past items and what is on the list."""
+    page.locator(".seg button", has_text="Past items" if view == "past" else "On the list").click()
+    if view == "past":
+        page.wait_for_timeout(450)   # the past items are fetched when the view opens
+
+
+def manage(page, view="onlist"):
+    tab(page, "Manage list")
+    page.get_by_label("Item", exact=True).wait_for()
+    show(page, view)
+
+
+def entry_names():
+    """What is on the first list right now, straight from the server."""
+    r = ctx.request.get(f"{B}/api/lists/1", headers={"X-SL-Client": "web"})
+    return [e["name"] for e in r.json()["entries"]]
 
 
 def check(name, cond, extra=""):
@@ -54,13 +90,16 @@ with sync_playwright() as p:
     page.wait_for_selector("button:has-text('Manage list')")
     check("new list opens straight into Shop tab", page.get_by_role("button", name="Shop", exact=True).get_attribute("aria-pressed") == "true")
     check("shop tab shows empty hint", page.locator("text=This list is empty").count() == 1)
-    check("shop tab has no add/edit controls", page.locator("summary:text-is('Add items')").count() == 0)
+    check("shop tab has no add/edit controls", page.get_by_label("Item", exact=True).count() == 0)
 
     # ---- manage: labeled fields ----
-    page.locator(".tabs button", has_text="Manage list").click()
-    page.wait_for_selector("summary:text-is('Add items')")
-    labels = [page.locator(f"label.field > span:text-is('{l}')").count() for l in ["Item", "Quantity", "Category", "Note (optional)"]]
-    check("labels visible: Item/Quantity/Category/Note", all(c >= 1 for c in labels), str(labels))
+    manage(page)
+    check("1.7.2: the Add row is one line (field, Add) until something is typed", page.get_by_label("Quantity").count() == 0 and page.get_by_role("button", name="Add", exact=True).is_disabled())
+    page.get_by_label("Item", exact=True).fill("x")
+    labels = [page.locator(f"label.field > span:text-is('{l}')").count() for l in ["Quantity", "Category", "Note (optional)"]]
+    check("1.7.2: typing opens Quantity, Category and Note", all(c >= 1 for c in labels), str(labels))
+    page.get_by_label("Item", exact=True).fill("")
+    check("1.7.2: ...and they fold away again when the field is empty", page.get_by_label("Quantity").count() == 0)
     check("no Unit field in add form", page.get_by_label("Unit").count() == 0)
 
     def add(name, qty="1", cat=None, note=None, new_cat=None):
@@ -131,7 +170,7 @@ with sync_playwright() as p:
     produce_before = items_in("Produce")
     page.reload()
     page.wait_for_selector("button:has-text('Manage list')")
-    page.locator(".tabs button", has_text="Manage list").click()
+    manage(page)
     page.wait_for_selector(".entry.manage")
     check("order and category survive reload", "Dish soap" in items_in("Produce") and items_in("Produce") == produce_before, f"{produce_before} -> {items_in('Produce')}")
 
@@ -164,20 +203,22 @@ with sync_playwright() as p:
     check("finished items leave the list; others stay", page.locator(".shop-row").count() == 2 and page.locator(".shop-row:has-text('Milk')").count() == 0)
 
     # ---- re-add from history ----
-    page.locator(".tabs button", has_text="Manage list").click()
-    page.wait_for_selector("text=Add from past items")
+    manage(page, "past")
+    page.wait_for_selector(".past")
     milk_row = page.locator(".past", has_text="Milk").first
     check("history shows bought count and recency", "1× ·" in milk_row.inner_text(), milk_row.inner_text())
+    milk_row.locator(".past-main").click()                       # a tap on the row opens its controls
     milk_row.get_by_role("button", name="More").click()
     milk_row.get_by_role("button", name="More").click()
     milk_row.get_by_role("button", name="Add to list").click()
     page.wait_for_timeout(600)
+    show(page, "onlist")
     check("re-added from history with qty 3", page.locator(".entry.manage", has_text="Milk").first.locator("output").inner_text().strip() == "3")
     page.screenshot(path="/tmp/shots/05-history.png", full_page=True)
 
 
     # ---- CSV: export the item bank, then import a file ----
-    page.locator("summary", has_text="Backup and move items").click()
+    menu_go(page, "Backup and move items")
     with page.expect_download() as dl:
         page.get_by_role("link", name="Export items").click()
     exported = open(dl.value.path(), encoding="utf-8").read()
@@ -186,13 +227,15 @@ with sync_playwright() as p:
     page.locator("input[type=file][accept*=csv]").set_input_files("/tmp/import.csv")
     page.get_by_role("button", name="Preview import").click()
     page.wait_for_selector("text=New: 3")
-    check("import preview: 3 new, 1 already known, nothing changed yet", "Already known: 1" in page.locator("main").inner_text() and page.locator(".entry.manage", has_text="Tahini").count() == 0)
+    check("import preview: 3 new, 1 already known, nothing changed yet", "Already known: 1" in page.locator("main").inner_text() and "Tahini" not in entry_names())
     check("1.5.0: the import preview says how many items become past items of this list", page.locator("text=/\\d+ will be added to this list's past items/").count() == 1)
     page.get_by_role("button", name="Import now").click()
     page.wait_for_selector("text=Import finished.")
     page.wait_for_timeout(500)
+    page.get_by_role("button", name="Back to Groceries").click()   # the CSV page is its own screen; back to Manage list
+    show(page, "onlist")
     check("imported items (English and Hebrew) are on the list with quantities", page.locator(".entry.manage", has_text="Tahini").count() == 1 and page.locator(".entry.manage", has_text="\u05de\u05dc\u05d7").count() == 1)
-    check("1.4.5: a quantity-0 imported item is a past item of this list, not on the list to buy", page.locator(".past", has_text="Sesame").count() == 1 and page.locator(".entry.manage", has_text="Sesame").count() == 0)
+    check("1.4.5: a quantity-0 imported item is a past item of this list, not on the list to buy", (show(page, "past") or True) and page.locator(".past", has_text="Sesame").count() == 1 and "Sesame" not in entry_names())
 
     # ---- finish a trip with a typed total and a real receipt photo ----
     page.get_by_role("button", name="Shop", exact=True).click()
@@ -206,15 +249,13 @@ with sync_playwright() as p:
     page.wait_for_selector("text=Trip finished")
     check("finish with photo reports the receipt saved", page.locator("text=Receipt photo saved").count() == 1)
 
-    # the tab row is ONE row on a phone: Shop and Manage list direct, the rest in a drop-down
-    ys = [page.locator(sel).bounding_box() for sel in [".tabs > button:has-text('Shop')", ".tabs > button:has-text('Manage list')", ".tabmenu > button"]]
-    check("tabs stay on one row on a phone (Shop, Manage list, More)", len({round(b["y"]) for b in ys}) == 1 and page.locator(".tabs").bounding_box()["height"] < 60, str(ys))
-    page.locator(".tabmenu > button").click()
-    check("the drop-down lists the secondary tabs", page.get_by_role("menuitem").all_inner_texts() == ["Compare prices", "List history"], str(page.get_by_role("menuitem").all_inner_texts()))
-    page.keyboard.press("Escape")
-    check("Escape closes the tab drop-down", page.get_by_role("menuitem").count() == 0)
-    more(page, "List history")
-    check("the drop-down button shows the open secondary tab", "List history" in page.locator(".tabmenu > button").inner_text() and page.locator(".tabmenu > button").get_attribute("aria-pressed") == "true")
+    # 1.7.2: the tabs are a bar at the bottom edge of a phone
+    bar = page.locator(".tabs").bounding_box()
+    ys = [page.locator(f".tabs > button[aria-label='{n}']").bounding_box() for n in ["Shop", "Manage list", "Compare prices", "List history"]]
+    check("1.7.2: the tabs are one bar fixed to the bottom edge of the phone", len({round(b["y"]) for b in ys}) == 1 and abs(bar["y"] + bar["height"] - 844) < 2 and bar["height"] < 90, str((bar, ys)))
+    check("1.7.2: the bar lists Shop, Manage list, the module tab and History, in that order", page.locator(".tabs > button").evaluate_all("els => els.map(e => e.getAttribute('aria-label'))") == ["Shop", "Manage list", "Compare prices", "List history"])
+    tab(page, "List history")
+    check("1.7.2: the open tab is marked", page.get_by_role("button", name="List history", exact=True).get_attribute("aria-pressed") == "true")
     page.wait_for_selector(".trip")
     head = page.locator(".trip-head").first.inner_text()
     check("history card shows the total in the user's currency (shekel, from the timezone)", "54.10" in head and "\u20aa" in head, head)
@@ -311,7 +352,7 @@ with sync_playwright() as p:
     check("restored items are back on the Shop tab", page.locator(".shop-row:has-text('Bread')").count() == 1 and page.locator(".shop-row:has-text('Milk')").count() == 1)
 
     # ---- settings: currency detection + cloud OCR key handling ----
-    page.get_by_role("button", name="Settings").click()
+    menu_go(page, "Settings")
     opts = page.get_by_label("Currency").locator("option").all_inner_texts()
     check("currency defaults to automatic detection (ILS from the timezone)", opts[0] == "Automatic (ILS)", str(opts[:2]))
     check("Settings shows matching app and server versions, and no stale-update banner", page.locator("text=/Version: app (\\S+) · server \\1/").count() == 1 and page.locator(".stale").count() == 0, page.locator("main").inner_text()[-120:])
@@ -328,22 +369,22 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Remove saved key").click()
     page.wait_for_selector("text=A key is saved", state="detached")
     check("API key can be removed", True)
-    page.get_by_role("button", name="Lists", exact=True).click()
+    to_lists(page)
     page.wait_for_selector(".shop-row, .list-card")
     if page.locator(".list-card").count(): page.locator(".list-card").first.click()
     page.wait_for_selector(".shop-row")
-    page.locator(".tabs button", has_text="Manage list").click()
-    page.wait_for_selector("summary:text-is('Add items')")
+    manage(page)
 
     # ---- store layout ----
-    page.get_by_text("Stores", exact=True).click()
+    menu_go(page, "Stores")
     page.get_by_placeholder("Store name").fill("Supermarket X")
     page.get_by_role("button", name="Add store").click()
     page.wait_for_selector("details.store")
     check("store created", page.locator("details.store summary:has-text('Supermarket X')").count() == 1)
 
     # ---- price comparison: cities, then chains, then branches in Manage list; look in the Compare prices tab ----
-    page.locator("details.card > summary", has_text="Compare prices").click()   # the collapsible in Manage list (not the tab)
+    page.get_by_role("button", name="Back to Groceries").click()   # a page of the menu has a back arrow, not a menu
+    menu_go(page, "Compare prices")   # the page of the burger menu (not the tab)
     page.locator("details.multi summary", has_text="Cities").click()
     page.get_by_label("\u05e8\u05de\u05ea \u05d2\u05df").check(timeout=20000)      # the directory loads in the background on the first visit
     page.get_by_label("\u05d1\u05e0\u05d9 \u05d1\u05e8\u05e7").check()
@@ -366,6 +407,7 @@ with sync_playwright() as p:
     page.get_by_label("Chain: Supermarket X").select_option("shufersal")
     page.wait_for_timeout(400)
     check("a household store can be linked to a chain", page.get_by_label("Chain: Supermarket X").input_value() == "shufersal")
+    page.get_by_role("button", name="Back to Groceries").click()
     more(page, "Compare prices")
     page.wait_for_selector(".trip-head")
     where = page.locator(".card", has_text="Comparing in").first.inner_text()
@@ -407,8 +449,7 @@ with sync_playwright() as p:
 
 
     # ---- 1.4.2: Add items offers the products of the chosen branches while typing ----
-    page.get_by_role("button", name="Manage list", exact=True).click()
-    page.wait_for_selector("summary:text-is('Add items')")
+    manage(page)
     page.get_by_label("Item", exact=True).fill("\u05e9\u05e2\u05d5\u05e2\u05d9\u05ea")
     page.wait_for_selector(".suggest[aria-label='From the stores']")
     store_sug = page.locator(".suggest[aria-label='From the stores'] button")
@@ -419,27 +460,25 @@ with sync_playwright() as p:
     page.get_by_label("Quantity").first.fill("3")
     page.get_by_role("button", name="Add", exact=True).click()
     page.wait_for_selector(".entry.manage:has-text('\u05e9\u05e2\u05d5\u05e2\u05d9\u05ea')")
-    page.locator(".tabmenu > button").click()
-    page.get_by_role("menuitem", name="Compare prices").click()
+    tab(page, "Compare prices")
     page.wait_for_selector("article.trip")
     sheli = page.locator("article.trip", has_text="\u05e9\u05dc\u05d9 \u05e8\u05de\u05ea \u05d2\u05df")
     if sheli.locator(".trip-body").count() == 0: sheli.locator(".trip-head").click()
     to_match = page.locator("section[aria-label='Items to match']")
     check("the product picked from the stores is already matched: the Compare tab prices it at once", sheli.locator("li", has_text="\u05e9\u05e2\u05d5\u05e2\u05d9\u05ea").locator("text=\u20aa").count() >= 1 and (to_match.count() == 0 or "\u05e9\u05e2\u05d5\u05e2\u05d9\u05ea" not in to_match.inner_text()), sheli.inner_text()[:150])
     page.screenshot(path="/tmp/shots/09b-compare.png", full_page=True)
-    page.locator(".tabs button", has_text="Manage list").click()
-    page.wait_for_selector("summary:text-is('Add items')")
+    manage(page)
 
 
     # ---- past items: one compact row, plus item editor ----
     page.locator(".entry.manage", has_text="Milk").get_by_role("button", name="Remove").click()   # past items are what is not on the list now
     page.wait_for_timeout(500)
+    show(page, "past")
     milk_row = page.locator(".past", has_text="Milk").first
-    centers = [b["y"] + b["height"] / 2 for b in [
-        milk_row.locator(".past-name").bounding_box(), milk_row.locator(".qty").bounding_box(),
-        milk_row.get_by_role("button", name="Add to list").bounding_box(),
-        milk_row.get_by_role("button", name="Edit").bounding_box(), milk_row.get_by_role("button", name="Remove from past items").bounding_box()]]
-    check("past item is a single line (name, qty, add, edit, remove)", max(centers) - min(centers) < 8 and milk_row.locator(".past-row").bounding_box()["height"] < 80, str(centers))
+    centers = [b["y"] + b["height"] / 2 for b in [milk_row.locator(".past-name").bounding_box(), milk_row.get_by_role("button", name="Add to list").bounding_box()]]
+    check("1.7.2: a past item is one compact line (name, +) with its controls closed", max(centers) - min(centers) < 8 and milk_row.locator(".past-row").bounding_box()["height"] < 80 and milk_row.locator(".qty").count() == 0, str(centers))
+    milk_row.locator(".past-main").click()
+    check("1.7.2: a tap on the row opens quantity, note, edit, remove and the add button", all(milk_row.get_by_role("button", name=n).count() == 1 for n in ["More", "Edit", "Remove from past items"]) and milk_row.get_by_placeholder("Note for this trip").count() == 1 and milk_row.get_by_role("button", name="Add 1 to list").count() == 1)
     milk_row.screenshot(path="/tmp/shots/05b-past-row.png")
     milk_row.get_by_role("button", name="Edit").click()
     page.locator(".past-edit").get_by_label("Default note").fill("lactose free")
@@ -452,17 +491,21 @@ with sync_playwright() as p:
     page.locator(".past-edit").get_by_role("button", name="Cancel").click()
 
     # ---- 1.4.3: select several past items and remove them at once; price estimates in the Shop tab, with a Settings switch ----
+    page.locator(".past", has_text="Tahini").first.locator(".past-main").click()
     page.locator(".past", has_text="Tahini").first.get_by_role("button", name="Edit").click()
     page.locator(".past-edit").get_by_label("Price (optional)").fill("12")
     page.locator(".past-edit").get_by_role("button", name="Save", exact=True).click()
     page.wait_for_selector(".past-edit", state="detached")
     add("Napkins", "1")                                                                   # a second past item to pick: on the list, then taken off it
+    show(page, "onlist")
     page.locator(".entry.manage", has_text="Napkins").get_by_role("button", name="Remove").click()
     page.wait_for_timeout(500)
+    show(page, "past")
     before = page.locator(".past").count()
     page.get_by_role("button", name="Select", exact=True).click()
     check("Select mode: a checkbox per past item, and an item that is on the list now cannot be picked",
-          page.locator(".past input[type=checkbox]").count() == before and page.locator(".past", has_text="Tahini").locator("input[type=checkbox]").is_disabled() and not page.locator(".past", has_text="Milk").locator("input[type=checkbox]").is_disabled())
+          page.locator(".past input[type=checkbox]").count() == before and page.locator(".past", has_text="Tahini").locator("input[type=checkbox]").is_disabled() and not page.locator(".past", has_text="Milk").locator("input[type=checkbox]").is_disabled(),
+          str((page.locator(".past input[type=checkbox]").count(), before, page.locator(".past", has_text="Tahini").locator("input[type=checkbox]").is_disabled(), page.locator(".past", has_text="Milk").locator("input[type=checkbox]").is_disabled())))
     pickable = page.evaluate("() => [...document.querySelectorAll('.past input[type=checkbox]:not([disabled])')].map((e) => e.getAttribute('aria-label')).filter((n) => n !== 'Milk')")
     pick = pickable[:2]
     assert len(pick) == 2, pickable
@@ -475,7 +518,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Done", exact=True).click()
 
     def list_tab(name):
-        page.get_by_role("button", name="Lists", exact=True).click()
+        to_lists(page)
         page.wait_for_selector("button:has-text('Manage list'), .list-card")
         if page.locator(".list-card").count():
             page.locator(".list-card").first.click()
@@ -485,7 +528,7 @@ with sync_playwright() as p:
     page.wait_for_selector(".est")
     check("an item with a known price shows its estimate on the Shop tab, with an estimated total", "\u2248" in page.locator(".est").first.inner_text() and "Estimated total" in page.locator("main").inner_text(), page.locator("main").inner_text()[:200])
     page.screenshot(path="/tmp/shots/05c-estimates.png", full_page=True)
-    page.get_by_role("button", name="Settings", exact=True).click()
+    menu_go(page, "Settings")
     est_card = page.locator("section.card", has=page.locator("h2:text-is('Price estimates')"))
     check("Settings has the estimates switch, on by default", est_card.get_by_label("Show price estimates in the Shop tab").is_checked() and "Use the default" not in est_card.inner_text())
     est_card.get_by_label("Show price estimates in the Shop tab").click()
@@ -493,23 +536,22 @@ with sync_playwright() as p:
     list_tab("Shop")
     page.wait_for_timeout(600)
     check("switched off: no estimates and no total on the Shop tab", page.locator(".est").count() == 0 and "Estimated total" not in page.locator("main").inner_text())
-    page.get_by_role("button", name="Settings", exact=True).click()
+    menu_go(page, "Settings")
     page.locator("section.card", has=page.locator("h2:text-is('Price estimates')")).get_by_role("button", name="Use the default").click()
     page.wait_for_timeout(600)
     check("Use the default switches it back on", page.locator("section.card", has=page.locator("h2:text-is('Price estimates')")).get_by_label("Show price estimates in the Shop tab").is_checked())
-    page.get_by_role("button", name="Admin", exact=True).click()
+    menu_go(page, "Admin")
     page.get_by_role("button", name="Server settings", exact=True).click()
     page.get_by_label("Show price estimates in the Shop tab by default", exact=False).wait_for()
     check("the admin sets the default for everyone", page.get_by_label("Show price estimates in the Shop tab by default", exact=False).count() == 1)
     list_tab("Manage list")
     page.locator(".past", has_text="Milk").first.get_by_role("button", name="Add to list").click()
     page.wait_for_timeout(600)
+    show(page, "onlist")
     check("default note is pre-filled when the item is added again", page.locator(".entry.manage", has_text="Milk").first.inner_text().count("lactose free") == 1)
 
     # ---- households: create, group on home, reorder, manage, leave/delete rules ----
-    page.get_by_role("button", name="Lists", exact=True).click()
-    page.wait_for_selector("button[aria-label='All lists']")
-    page.get_by_role("button", name="All lists").click()
+    to_lists(page)
     page.wait_for_selector(".list-card")
     check("single household: no household header", page.locator(".hh").count() == 0)
     page.get_by_role("button", name="Menu", exact=True).click()
@@ -554,7 +596,7 @@ with sync_playwright() as p:
           f"cards={page.locator('.list-card').count()} hh={page.locator('.hh').count()} main={page.locator('main').inner_text()[:200]!r}")
 
     # ---- Admin > Modules > Price comparison > Configure (the supermarket portals and the update settings live there) ----
-    page.get_by_role("button", name="Admin", exact=True).click()
+    menu_go(page, "Admin")
     page.get_by_role("button", name="Modules", exact=True).click()
     pcard = page.locator("section.card", has=page.locator("strong:text-is('Price comparison')"))
     pcard.get_by_role("button", name="Configure").wait_for()
@@ -577,11 +619,11 @@ with sync_playwright() as p:
     page.wait_for_selector("a:has-text('Download')")
     check("raw files kept by the test are listed for download", page.locator("a:has-text('Download')").count() == 2)
     page.screenshot(path="/tmp/shots/09c-admin-portals.png", full_page=True)
-    page.get_by_role("button", name="Lists", exact=True).click()
+    to_lists(page)
     page.wait_for_selector(".shop-row, .list-card")
 
     # ---- modules (1.3.0): the user's own switches, then Admin > Modules ----
-    page.get_by_role("button", name="Settings", exact=True).click()
+    menu_go(page, "Settings")
     mods = page.locator("section.card", has=page.locator("h2:text-is('Modules')"))
     # a module's switch is found by its name in bold (another module's description may mention "Price comparison")
     pc = lambda: page.locator("section.card", has=page.locator("h2:text-is('Modules')")).locator("label.check", has=page.locator("strong:text-is('Price comparison')")).locator("input")
@@ -591,15 +633,13 @@ with sync_playwright() as p:
     pc().click()   # controlled checkbox: it changes once the server has answered
     page.wait_for_timeout(800)
     check("switching a module off takes effect at once", pc().is_checked() is False)
-    page.get_by_role("button", name="Lists", exact=True).click()
+    to_lists(page)
     page.wait_for_selector("button:has-text('Manage list'), .list-card")
     if page.locator(".list-card").count():
         page.locator(".list-card").first.click()
         page.wait_for_selector("button:has-text('Manage list')")
-    page.locator(".tabmenu > button").click()
-    check("...and the Compare prices tab", page.get_by_role("menuitem", name="Compare prices").count() == 0 and page.get_by_role("menuitem", name="List history").count() == 1)
-    page.keyboard.press("Escape")
-    page.get_by_role("button", name="Settings", exact=True).click()
+    check("...and the Compare prices tab", page.get_by_role("button", name="Compare prices", exact=True).count() == 0 and page.get_by_role("button", name="List history", exact=True).count() == 1)
+    menu_go(page, "Settings")
     pc().click()
     page.wait_for_timeout(800)
     check("switching it back on needs no reload", pc().is_checked() is True)
@@ -613,7 +653,7 @@ with sync_playwright() as p:
                 full = os.path.join(root, f)
                 z.write(full, os.path.relpath(full, sample))
     open("/tmp/sample-module.zip", "wb").write(buf.getvalue())
-    page.get_by_role("button", name="Admin", exact=True).click()
+    menu_go(page, "Admin")
     page.get_by_role("button", name="Modules", exact=True).click()
     page.wait_for_selector("text=Price comparison")
     check("Admin > Modules lists the bundled modules (three features and the Hebrew language) as running", page.locator("section.card .chip", has_text="Running").count() == 4)
@@ -637,84 +677,47 @@ with sync_playwright() as p:
     page.wait_for_selector("text=Users with access can still switch it off for themselves.")
     check("the admin can see who has access to a module", sec.locator("input[type=checkbox]").count() >= 1)
     page.screenshot(path="/tmp/shots/11b-admin-modules-upload.png", full_page=True)
-    page.get_by_role("button", name="Lists", exact=True).click()
+    to_lists(page)
     page.wait_for_selector(".shop-row, .list-card")
 
-    # ---- 1.3.1: Manage list layout, collapsible sections, language module, content direction ----
-    def open_manage():
-        page.get_by_role("button", name="Lists", exact=True).click()
-        page.wait_for_selector("button:has-text('Manage list'), .list-card")
-        if page.locator(".list-card").count():
-            page.locator(".list-card").first.click()
-            page.wait_for_selector("button:has-text('Manage list')")
-        page.get_by_role("button", name="Manage list").click()
-        page.wait_for_selector("details.card > summary")
-    sums = lambda: page.locator("details.card > summary").all_inner_texts()
-
-    page.get_by_role("button", name="Settings", exact=True).click()
+    # ---- 1.3.1: language module, content direction (the Manage list layout setting went away in 1.7.2: those sections are pages of the burger menu) ----
+    menu_go(page, "Settings")
     langs = page.locator("label.field:has(> span:text-is('Language')) select option").all_inner_texts()
     check("Settings language lists English and the Hebrew language module", langs == ["English", "\u05e2\u05d1\u05e8\u05d9\u05ea"], str(langs))
-    lay = page.locator("section.card", has=page.locator("h2:text-is('Manage list layout')"))
-    order = lay.locator("li .grow").all_inner_texts()
-    check("Manage list layout lists every section, module sections included, in the default order",
-          order[:6] == ["Add items", "On this list", "Add from past items", "Backup and move items (CSV)", "Categories and their order", "Stores"] and "Compare prices" in order[6:8], str(order))
-    for _ in range(5):
-        lay.get_by_label("Move up: Stores").click()
-    page.wait_for_timeout(700)
-    open_manage()
-    first = sums()
-    check("the chosen order is used in Manage list", first[0] == "Stores" and first[1] == "Add items", str(first[:3]))
-    page.reload()
-    open_manage()
-    check("...and it is kept on the server (survives a reload)", sums()[0] == "Stores", str(sums()[:2]))
-
-    add = page.locator("details.card", has=page.locator("summary:text-is('Add items')"))
-    check("sections that used to be always open start open", add.evaluate("e => e.open") is True)
-    add.locator("summary").click()
-    page.wait_for_timeout(900)
-    check("every section can be collapsed", add.evaluate("e => e.open") is False)
-    page.reload()
-    open_manage()
-    add = page.locator("details.card", has=page.locator("summary:text-is('Add items')"))
-    check("an open or closed section is remembered", add.evaluate("e => e.open") is False)
-    add.locator("summary").click()
-    page.wait_for_timeout(900)
-
+    check("1.7.2: Settings no longer has the Manage list layout card", page.locator("h2:text-is('Manage list layout')").count() == 0)
+    to_lists(page)
+    page.wait_for_selector(".shop-row, .list-card")
+    if page.locator(".list-card").count():
+        page.locator(".list-card").first.click()
+    page.wait_for_selector(".shop-row")
+    manage(page)
     check("Hebrew list content is right-to-left inside the English (left-to-right) interface",
           page.evaluate("document.documentElement.dir") == "ltr" and page.evaluate("""() => { const el = [...document.querySelectorAll('.entry .name')].find(e => /[\\u0590-\\u05FF]/.test(e.textContent)); return el ? getComputedStyle(el).direction : null; }""") == "rtl")
-    check("text boxes follow the language of what is typed", page.locator("input[type=text][dir=auto]").count() >= 3)
-
-    page.get_by_role("button", name="Settings", exact=True).click()
-    lay = page.locator("section.card", has=page.locator("h2:text-is('Manage list layout')"))
-    lay.get_by_role("button", name="Reset to the default order").click()
-    page.wait_for_timeout(700)
-    open_manage()
-    check("Reset to the default order restores it", sums()[:2] == ["Add items", "On this list"], str(sums()[:2]))
-    page.screenshot(path="/tmp/shots/12-manage-collapsible.png", full_page=True)
-    page.get_by_role("button", name="Lists", exact=True).click()
-    page.wait_for_selector(".shop-row, .list-card, button:has-text('Manage list')")
+    page.get_by_label("Item", exact=True).fill("x")
+    check("text boxes follow the language of what is typed", page.locator("input[type=text][dir=auto]").count() >= 2)
+    page.get_by_label("Item", exact=True).fill("")
+    page.screenshot(path="/tmp/shots/12-manage.png", full_page=True)
 
     # ---- Hebrew + RTL ----
-    page.get_by_role("button", name="Settings").click()
+    menu_go(page, "Settings")
     page.locator("label.field:has(> span:text-is('Language')) select").select_option("he")
     page.wait_for_function("document.documentElement.dir === 'rtl'")
     check("Hebrew switches page to RTL", page.evaluate("document.documentElement.lang") == "he")
-    page.get_by_role("button", name="רשימות").click()
+    menu_go(page, "רשימות", menu="תפריט")
     page.wait_for_selector(".shop-row, .list-card")  # a single list auto-opens
     if page.locator(".list-card").count():
         page.locator(".list-card").first.click()
     page.wait_for_selector(".shop-row")
     page.screenshot(path="/tmp/shots/06-shop-he.png", full_page=True)
     page.get_by_role("button", name="ניהול הרשימה").click()
-    page.wait_for_selector("text=הוספת פריטים")
+    page.wait_for_selector(".addrow input[type=text]")
     page.screenshot(path="/tmp/shots/07-manage-he.png", full_page=True)
     over = page.evaluate("""() => { const W = document.documentElement.clientWidth; const out = [];
       document.querySelectorAll('body *').forEach(el => { const r = el.getBoundingClientRect(); if (r.width && (r.right > W + 1 || r.left < -1)) out.push(el.tagName + '.' + (el.className||'') + ' ' + Math.round(r.left) + '..' + Math.round(r.right)); });
       return {sw: document.documentElement.scrollWidth, cw: W, out: out.slice(-6)}; }""")
     check("no horizontal overflow (Hebrew manage, phone)", over["sw"] <= over["cw"], str(over))
 
-    page.locator(".tabmenu > button").click()
-    page.get_by_role("menuitem", name="היסטוריית הרשימה").click()
+    tab(page, "היסטוריית הרשימה")
     page.wait_for_selector(".trip")
     page.locator(".trip-head").first.click()
     page.wait_for_selector(".hline")
@@ -722,8 +725,7 @@ with sync_playwright() as p:
     hmids = [bx["y"] + bx["height"] / 2 for bx in [page.locator(".hline").first.locator(sel).bounding_box() for sel in ["input[type=checkbox]", ".hn", "button.iconbtn"]]]
     check("no horizontal overflow and one-row history lines (Hebrew, phone)", over["sw"] <= over["cw"] and max(hmids) - min(hmids) < 6, str(over) + str(hmids))
     page.screenshot(path="/tmp/shots/07b-history-he.png", full_page=True)
-    page.locator(".tabmenu > button").click()
-    page.get_by_role("menuitem", name="השוואת מחירים").click()
+    tab(page, "השוואת מחירים")
     page.wait_for_selector(".trip-head")
     check("compare tab works in Hebrew", page.locator(".trip-head").count() == 3)
     page.locator(".tabs button:has-text('קניות')").click()

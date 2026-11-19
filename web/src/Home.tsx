@@ -10,7 +10,8 @@ import { SortableList } from './dnd';
 type InstallEvent = Event & { prompt: () => Promise<void> };
 type Sub = { kind: 'home' } | { kind: 'newList'; hid: number } | { kind: 'newHousehold' } | { kind: 'household'; hid: number };
 
-export default function Home({ me, onMeChange }: { me: Me; onMeChange: () => void }) {
+// accountItems: what the app adds to every burger menu (Settings, Admin, Sign out); they come from App.
+export default function Home({ me, onMeChange, accountItems }: { me: Me; onMeChange: () => void; accountItems: MenuItem[] }) {
   const [lists, setLists] = useState<ListSummary[] | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [auto, setAuto] = useState(true);
@@ -35,7 +36,7 @@ export default function Home({ me, onMeChange }: { me: Me; onMeChange: () => voi
 
   const home = () => { setSub({ kind: 'home' }); load(); onMeChange(); };
 
-  if (openId !== null) return <ListView listId={openId} me={me} onBack={() => { setOpenId(null); setAuto(false); load(); }} />;
+  if (openId !== null) return <ListView listId={openId} me={me} onBack={() => { setOpenId(null); setAuto(false); load(); }} accountItems={accountItems} />;
   if (sub.kind === 'newList') return <CreateList me={me} initialHid={sub.hid} onCancel={home} onCreated={(id) => { setSub({ kind: 'home' }); setOpenId(id); }} />;
   if (sub.kind === 'newHousehold') return <CreateHousehold onCancel={() => setSub({ kind: 'home' })} onCreated={home} />;
   if (sub.kind === 'household') return <HouseholdScreen me={me} hid={sub.hid} onBack={home} onChanged={onMeChange} />;
@@ -89,7 +90,7 @@ export default function Home({ me, onMeChange }: { me: Me; onMeChange: () => voi
         <h1>{t('hello', { name: me.name })}</h1>
         <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
           {!multi && only && <button className="btn signal" onClick={() => setSub({ kind: 'newList', hid: only.id })}>{t('newList')}</button>}
-          <Menu items={topItems} />
+          <Menu items={[...topItems, { heading: me.name }, ...accountItems]} />
         </div>
       </div>
 

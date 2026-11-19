@@ -12,3 +12,4 @@ export const errText = (e: unknown) => h().errText(e);
 export const getLang = () => h().getLang();
 export const formatMoney = (n: number, cur: string) => h().formatMoney(n, cur);
 export const isApiError = (e: unknown, code: string) => e instanceof h().ApiError && (e as { code?: string }).code === code;
+export const createPortal = (node: import('react').ReactNode, target: Element) => h().createPortal(node, target);

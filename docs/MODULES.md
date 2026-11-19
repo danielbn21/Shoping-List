@@ -58,11 +58,12 @@ export default function register(ctx) {
   ctx.routes.put('/admin/x', { access: 'admin' }, async (req) => ({ … })); // and only while the module is on for that user
 
   ctx.provide('receipt-reader', { read: async ({ file, mime, userId, engine }) => ({ … }) });   // must be listed in "provides"
-  ctx.events.on('list.deleted', ({ listId }) => { … });   // list.deleted, item.deleted, store.deleted, household.deleted, user.deleted
+  ctx.events.on('list.deleted', ({ listId }) => { … });   // list.deleted, item.deleted, item.renamed (1.7.1: { itemId, householdId }), store.deleted, household.deleted, user.deleted
   ctx.core.listAccess(user, listId); ctx.core.listOpenEntries(listId); ctx.core.householdStores(hid);
   ctx.core.storeAccess(user, storeId); ctx.core.similarItem(householdId, name); ctx.core.itemInHousehold(householdId, itemId); ctx.core.lastPaid({ itemId, storeIds, userId }); ctx.audit(userId, action, target, detail);
   ctx.core.listPastItems(listId);                                    // since 1.7.0: [{ itemId, name }] the list's past items, newest first
   ctx.core.scanItem({ user, listId, itemId, name, price, tick });   // since 1.6.0, the one write: puts an item on the list or ticks it (see below)
+  ctx.core.renameItem({ user, listId, itemId, name });             // since 1.7.0: renames a household item ({ itemId, name, previousName } or { error }); Owner/Editor, name unique in the household
   ctx.capability('barcode-lookup', userId);                          // since 1.6.0: another module's capability for this user, or null
 }
 ```
@@ -87,11 +88,12 @@ Rules enforced when a module is installed: only `node:` built-ins and relative i
 ```tsx
 import type { Host } from '../../../web/src/host';
 export default function register(host: Host) {
+  // host.createPortal(node, document.body) (since 1.7.0): draw a dialog outside the core's forms and scroll boxes. Events still bubble through a portal in React, so stop `submit` at the dialog's root.
   host.slots.add('settings.section', { id: 'x', title: () => host.t('xTitle'), order: 20, collapsible: true, component: MyPanel });
 }
 ```
 
-Slots: `shop.toolbar` (a small control next to the search box in Shop; props `{ data, me, reload, storeId }`, `storeId` being the store chosen in Shop or `""`) and `manage.toolbar` (in the row of the Add button in Manage list; same props), `list.tab` (props `{ data, me, reload }`), `manage.section` (same props), `settings.section` (`{ me, onChange }`), `admin.section` (`{ me }`). An `admin.section` is the module's **configuration panel**: Admin > Modules shows a **Configure** button on the module's card (only when the module registered one and is enabled) and opens the panel under the card. Put everything an admin configures in it (a module with several `admin.section` entries gets a heading for each). `visible({ me, data })` can hide an entry; `order` sorts. The host provides React, `api`, `moduleApi`, `t`, `errText`, `timeAgo`, `formatMoney`, `effectiveCurrency`. A module never bundles React: `scripts/build-modules.mjs` points `react` at the app's copy (`globalThis.__SL_HOST__`). Calls to `host.moduleApi('/x')` go to `/api/m/<id>/x`.
+Slots: `shop.toolbar` (a small control next to the search box in Shop; props `{ data, me, reload, storeId }`, `storeId` being the store chosen in Shop or `""`) and `manage.toolbar` (in the row of the Add button in Manage list; same props), `list.tab` (props `{ data, me, reload }`; a tab of the list: the bar at the bottom edge on a phone, with a generic icon and the `title()` as its label, so keep it short), `manage.section` (same props; **since 1.7.2 each one is a page of the list's burger menu**, its `title()` being the menu entry, no longer a card inside Manage list), `settings.section` (`{ me, onChange }`), `admin.section` (`{ me }`). An `admin.section` is the module's **configuration panel**: Admin > Modules shows a **Configure** button on the module's card (only when the module registered one and is enabled) and opens the panel under the card. Put everything an admin configures in it (a module with several `admin.section` entries gets a heading for each). `visible({ me, data })` can hide an entry; `order` sorts. The host provides React, `api`, `moduleApi`, `t`, `errText`, `timeAgo`, `formatMoney`, `effectiveCurrency`. A module never bundles React: `scripts/build-modules.mjs` points `react` at the app's copy (`globalThis.__SL_HOST__`). Calls to `host.moduleApi('/x')` go to `/api/m/<id>/x`.
 
 ## Build, package, install
 

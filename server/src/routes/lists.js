@@ -334,6 +334,7 @@ export default async function listRoutes(app) {
       else { price = Number(b.price); if (!(price >= 0 && price < 1e7)) return bad(reply, 'invalid_price'); }
     }
     db.prepare('UPDATE items SET name = ?, name_norm = ?, category_id = ?, default_note = ?, price = ? WHERE id = ?').run(name, name_norm, category_id, default_note, price, item.id);
+    if (name_norm !== item.name_norm) app.modules.events.emit('item.renamed', { itemId: item.id, householdId: item.household_id });   // since 1.7.1: modules drop what they derived from the old name
     return { ok: true };
   });
 

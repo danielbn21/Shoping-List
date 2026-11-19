@@ -24,6 +24,10 @@
   "scanForbidden": "Only editors can add new items to this list. You can still scan items that are already on it.",
   "scanPrice": "{price} at {chain}",
   "scanWeighted": "sold by weight, price not saved",
-  "err_invalid_code": "That is not a valid barcode number."
+  "err_invalid_code": "That is not a valid barcode number.",
+  "scanRename": "Edit name",
+  "scanSave": "Save",
+  "scanRenamed": "Renamed: \"{from}\" is now \"{to}\"",
+  "scanNewNameHint": "If it is a new item, you can change its name:"
  }
 }
