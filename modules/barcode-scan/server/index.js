@@ -26,7 +26,7 @@ export const canon = (raw) => {
 };
 const clean = (s) => (typeof s === 'string' ? s.trim().replace(/\s+/g, ' ').slice(0, 100) : '');
 const bad = (reply, error, code = 400) => reply.code(code).send({ error });
-const FAIL = { not_found: 404, forbidden: 403, invalid_name: 400 };
+const FAIL = { not_found: 404, forbidden: 403, invalid_name: 400, item_exists: 409 };
 
 const publicProduct = (p) => p && ({
   name: p.name, manufacturer: p.manufacturer || '', price: p.price, weighted: !!p.weighted, unit: p.unit || '', unitPrice: p.unitPrice ?? null,
@@ -79,6 +79,22 @@ export default function register(ctx) {
     remember.run(hid, code, r.itemId, product?.name ?? name ?? null, req.user.id, Date.now());
     ctx.audit(req.user.id, 'scan', String(listId), { itemId: r.itemId, action: r.action, via });
     return { status: 'done', action: r.action, via, item: { id: r.itemId, name: r.name }, created: r.created, quantity: r.quantity, priceSaved: r.priceSaved, product: publicProduct(product) };
+  });
+
+  // POST { itemId, name } -> { ok, item: { id, name } }
+  // Renames the item a barcode points to. The barcode stays attached to the item (it points at the item, not at its name), so the next
+  // scan lands on the new name. Only items that have a barcode here can be renamed this way; edit rights on the list are needed.
+  ctx.routes.post('/lists/:id/scan/rename', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const listId = Number(req.params.id);
+    const acc = core.listAccess(req.user, listId);
+    if (!acc) return bad(reply, 'not_found', 404);
+    const b = req.body || {};
+    const hid = acc.list.household_id;
+    if (!db.prepare('SELECT 1 FROM barcode_items WHERE household_id = ? AND item_id = ?').get(hid, Number(b.itemId))) return bad(reply, 'not_found', 404);
+    const r = core.renameItem({ user: req.user, listId, itemId: b.itemId, name: clean(b.name) });
+    if (r.error) return bad(reply, r.error, FAIL[r.error] ?? 400);
+    ctx.audit(req.user.id, 'scan.rename', String(listId), { itemId: r.itemId, from: r.previousName, to: r.name });
+    return { ok: true, item: { id: r.itemId, name: r.name } };
   });
 
   ctx.events.on('item.deleted', ({ itemId, householdId }) => db.prepare('DELETE FROM barcode_items WHERE household_id = ? AND item_id = ?').run(householdId, itemId));

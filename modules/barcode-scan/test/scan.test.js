@@ -150,3 +150,38 @@ test('a deleted item forgets its barcode', async () => {
   assert.equal(db.prepare('SELECT COUNT(*) c FROM barcode_items').get().c, 0);
   await t.app.close();
 });
+
+test('1.1.0 rename: the item a barcode points to gets a new name and the barcode follows it; the next scan lands on the new name, no second item', async () => {
+  const t = await boot();
+  const first = await t.scan({ code: TAHINI, tick: false });                         // created as "Tahini Achva 500g"
+  const id = first.body.item.id;
+  const rn = (body, cookie = t.admin.cookie, list = t.lid) => t.call('POST', `/api/m/barcode-scan/lists/${list}/scan/rename`, body, cookie);
+  const r = await rn({ itemId: id, name: '  Our   tahini ' });
+  assert.deepEqual([r.status, r.body.item], [200, { id, name: 'Our tahini' }]);        // spaces tidied
+  assert.deepEqual((await t.entries()).map((e) => e.name), ['Our tahini']);            // the list shows the new name
+  const again = await t.scan({ code: TAHINI, tick: false });
+  assert.deepEqual([again.body.status, again.body.via, again.body.item], ['done', 'barcode', { id, name: 'Our tahini' }]);
+  assert.deepEqual((await t.items()).map((i) => i.name), ['Our tahini']);              // still one item
+  assert.equal((await rn({ itemId: id, name: 'our TAHINI' })).status, 200);            // only the case changes: allowed
+  await t.app.close();
+});
+
+test('1.1.0 rename: refused for a name another item has, an empty name, an item without a barcode, and for a Shopper', async () => {
+  const t = await boot();
+  const a = (await t.scan({ code: TAHINI, tick: false })).body.item.id;
+  await t.scan({ code: MILK, tick: false, name: 'Milk' });
+  const plain = (await t.want('Bread', 1)).body;                                        // on the list but no barcode
+  const rn = (body, cookie = t.admin.cookie) => t.call('POST', `/api/m/barcode-scan/lists/${t.lid}/scan/rename`, body, cookie);
+  const dup = await rn({ itemId: a, name: 'milk' });
+  assert.deepEqual([dup.status, dup.body.error], [409, 'item_exists']);
+  assert.equal((await rn({ itemId: a, name: '   ' })).body.error, 'invalid_name');
+  const items = await t.items();
+  const breadId = items.find((i) => i.name === 'Bread')?.id ?? plain.itemId;
+  assert.equal((await rn({ itemId: breadId, name: 'Rye bread' })).status, 404);        // not a barcode item: this is not a general rename
+  assert.equal((await rn({ itemId: 99999, name: 'x' })).status, 404);
+  const dana = await t.mkUser('dana');
+  await t.call('PUT', `/api/lists/${t.lid}/members/${dana.id}`, { role: 'viewer' }, t.admin.cookie);
+  assert.equal((await rn({ itemId: a, name: 'Sesame paste' }, dana.cookie)).status, 403);
+  assert.ok((await t.items()).some((i) => i.name === 'Tahini Achva 500g'));            // unchanged
+  await t.app.close();
+});

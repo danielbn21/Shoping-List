@@ -45,8 +45,7 @@ with sync_playwright() as p:
     page = ctx.new_page()
     page.goto(BASE)
     page.get_by_text("Groceries").first.click()
-    page.locator(".tabmenu > button").click()   # on a phone the secondary tabs sit in the drop-down
-    page.get_by_role("menuitem", name="Compare prices").click()
+    page.get_by_role("button", name="Compare prices", exact=True).click()
     page.wait_for_selector("text=Items to match", timeout=30000)
     body = page.locator("section[aria-label]").first.inner_text() if page.locator("section[aria-label]").count() else page.inner_text("body")
     check("the exact name was matched by itself: it is not in the list of items to match", "חלב תנובה 3% 1 ליטר" not in body, body[:300])

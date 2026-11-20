@@ -8,6 +8,7 @@ import Settings from './Settings';
 import Admin from './Admin';
 import { syncModules } from './modules';
 import { initPrefs } from './prefs';
+import Menu, { type MenuItem } from './Menu';
 
 type State = { kind: 'loading' } | { kind: 'offline' } | { kind: 'ready'; cfg: Cfg; me: Me | null };
 type View = 'home' | 'settings' | 'admin';
@@ -77,22 +78,24 @@ export default function App() {
   }
 
   const current: View = view === 'admin' && me.role !== 'admin' ? 'home' : view;
-  const navBtn = (v: View, label: string) => (
-    <button aria-current={current === v ? 'page' : undefined} onClick={() => setView(v)}>{label}</button>
-  );
+  // The app's own pages live in the burger menu of every screen. Home needs no entry of its own on Home (and lists have a back arrow).
+  const account = (withHome: boolean): MenuItem[] => [
+    ...(withHome ? [{ label: t('navHome'), onClick: () => setView('home') }] : []),
+    { label: t('navSettings'), onClick: () => setView('settings'), current: current === 'settings' },
+    ...(me.role === 'admin' ? [{ label: t('navAdmin'), onClick: () => setView('admin'), current: current === 'admin' }] : []),
+    { label: t('signOut'), onClick: logout },
+  ];
 
   return (
     <div className="shell">
-      <header className="topbar">
-        <div className="brand"><img src="/icon-192.png" alt="" />{t('appName')}</div>
-        <nav className="nav" aria-label="Main">
-          {navBtn('home', t('navHome'))}
-          {navBtn('settings', t('navSettings'))}
-          {me.role === 'admin' && navBtn('admin', t('navAdmin'))}
-        </nav>
-      </header>
+      {current !== 'home' && (
+        <header className="topbar">
+          <div className="brand"><img src="/icon-192.png" alt="" />{t('appName')}</div>
+          <Menu items={account(true)} />
+        </header>
+      )}
       <main>
-        {current === 'home' && <Home me={me} onMeChange={load} />}
+        {current === 'home' && <Home me={me} onMeChange={load} accountItems={account(false)} />}
         {current === 'settings' && <Settings me={me} cfg={cfg} onChange={load} onLogout={logout} />}
         {current === 'admin' && <Admin me={me} />}
       </main>

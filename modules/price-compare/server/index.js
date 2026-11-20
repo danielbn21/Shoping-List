@@ -258,6 +258,9 @@ export default function register(ctx) {
   // Cleanup when the core removes things this module keeps notes about.
   const dropLists = (ids) => { const a = db.prepare('DELETE FROM list_compare_stores WHERE list_id = ?'), b = db.prepare('DELETE FROM list_compare_cities WHERE list_id = ?'); for (const id of ids) { a.run(id); b.run(id); } };
   ctx.events.on('list.deleted', ({ listId }) => dropLists([listId]));
+  // An item was renamed: a match made because its OLD name was a product's name no longer holds (the new name is matched again at the next compare).
+  // What the household chose itself, and what was carried over from a choice at another chain, does not depend on the name and stays.
+  ctx.events.on('item.renamed', ({ itemId, householdId }) => db.prepare("DELETE FROM product_map WHERE household_id = ? AND item_id = ? AND status = 'auto' AND auto_via = 'name'").run(householdId, itemId));
   ctx.events.on('item.deleted', ({ itemId, householdId }) => db.prepare('DELETE FROM product_map WHERE household_id = ? AND item_id = ?').run(householdId, itemId));
   ctx.events.on('store.deleted', ({ storeId }) => db.prepare('DELETE FROM store_chain WHERE store_id = ?').run(storeId));
   ctx.events.on('household.deleted', ({ householdId, listIds = [], storeIds = [] }) => { dropLists(listIds); db.prepare('DELETE FROM product_map WHERE household_id = ?').run(householdId); const d = db.prepare('DELETE FROM store_chain WHERE store_id = ?'); for (const id of storeIds) d.run(id); });

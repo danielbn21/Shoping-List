@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
 import ModulesUser from './ModulesUser';
-import ManageLayout from './ManageLayout';
 import { ModuleSettingsSections } from './ModuleSections';
 import { t, errText, timeAgo, availableLanguages } from './i18n';
 import { CURRENCIES, currencyName, detectCurrency } from './money';
@@ -93,8 +92,6 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
       </form>
 
       <EstimatesSetting me={me} onChange={onChange} />
-
-      <ManageLayout me={me} />
 
       <ModuleSettingsSections me={me} onChange={onChange} />
 

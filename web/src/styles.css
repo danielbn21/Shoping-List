@@ -69,11 +69,6 @@ button, input, select { font: inherit; color: inherit; }
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: -0.01em; }
 .brand img { width: 28px; height: 28px; border-radius: 7px; }
-.nav { display: flex; gap: 4px; }
-.nav button {
-  background: transparent; border: 0; color: #c8d6cd; padding: 8px 12px; border-radius: 999px; cursor: pointer; font-weight: 600;
-}
-.nav button[aria-current="page"] { background: var(--signal); color: var(--signal-ink); }
 main { width: 100%; max-width: 760px; margin: 0 auto; padding: 20px 16px calc(32px + env(safe-area-inset-bottom)); flex: 1; }
 .stack { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 .stack-sm { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
@@ -82,13 +77,7 @@ main { width: 100%; max-width: 760px; margin: 0 auto; padding: 20px 16px calc(32
 .grow { flex: 1; min-width: 0; }
 
 @media (max-width: 640px) {
-  .topbar { flex-wrap: wrap; }
-  .nav {
-    position: fixed; inset-inline: 0; bottom: 0; z-index: 5; justify-content: space-around;
-    padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); background: var(--ink); border-top: 1px solid #2a3d33;
-  }
-  .nav button { flex: 1; padding: 10px 6px; }
-  main { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+  main { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }   /* room for the tab bar of a list */
 }
 
 /* ---------- surfaces ---------- */
@@ -222,7 +211,7 @@ input[type="search"] { width: 100%; min-height: 46px; padding: 10px 12px; border
   position: sticky; bottom: 10px; z-index: 4; display: flex; gap: 8px; align-items: center; margin-top: 16px; padding: 10px;
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
 }
-@media (max-width: 640px) { .shopbar { bottom: calc(76px + env(safe-area-inset-bottom)); } }
+@media (max-width: 640px) { .shopbar { bottom: calc(72px + env(safe-area-inset-bottom)); } }   /* just above the tab bar */
 
 /* ---------- stage 3: manage list ---------- */
 .handle {
@@ -319,3 +308,55 @@ details.multi summary { min-height: 44px; display: flex; align-items: center; ga
 .branch-group { display: grid; gap: 2px; padding-block: 4px; }
 .branch-group + .branch-group { border-top: 1px solid var(--line); }
 details.multi input[type="search"] { width: 100%; margin-block: 6px; }
+
+/* ---------- 1.7.2: tabs of a list (a bar at the bottom edge on a phone), burger menu as a sheet, Manage list ---------- */
+.tabs { order: -1; }
+.tabs .ico, .tabs .lbl-short { display: none; }
+@media (max-width: 640px) {
+  .tabs {
+    position: fixed; inset-inline: 0; bottom: 0; z-index: 30; flex-wrap: nowrap; gap: 0; align-items: stretch;
+    padding: 0 0 env(safe-area-inset-bottom); background: var(--card); border-top: 1px solid var(--line);
+  }
+  .tabs > button, .tabs > .menu > button {
+    flex: 1 1 0; min-width: 0; min-height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    padding: 6px 0; border: 0; border-top: 3px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font-size: 0.72rem; font-weight: 700;
+  }
+  .tabs > .menu { flex: 1 1 0; display: flex; }
+  .tabs > .menu > button { width: 100%; }
+  .tabs > button[aria-pressed="true"], .tabs > .menu > button[aria-pressed="true"],
+  :root[data-theme="dark"] .tabs > button[aria-pressed="true"], :root[data-theme="dark"] .tabs > .menu > button[aria-pressed="true"] {
+    background: transparent; color: var(--brand); border-color: transparent; border-top-color: var(--brand);
+  }
+  .tabs .ico { display: block; line-height: 0; }
+  .tabs .lbl-full { display: none; }
+  .tabs .lbl-short { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kbd .tabs { display: none; }                      /* the on-screen keyboard is up */
+}
+
+.menu-heading { margin: 8px 12px 0; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.menu-panel button { display: flex; align-items: center; gap: 8px; }
+.menu-panel button[aria-current="page"] { background: var(--paper); }
+.menu-count { flex: none; min-width: 26px; text-align: center; padding: 1px 9px; border-radius: 999px; background: var(--paper); font-weight: 700; }
+.menu-grab, .menu-backdrop { display: none; }
+@media (max-width: 640px) {
+  .menu-backdrop { display: block; position: fixed; inset: 0; z-index: 39; background: rgba(0, 0, 0, 0.45); }
+  .menu-panel, .tabs .menu-panel {
+    position: fixed; inset-inline: 0; top: auto; bottom: 0; z-index: 40; min-width: 0; max-height: 82dvh; overflow-y: auto;
+    border-radius: 20px 20px 0 0; border-bottom: 0; padding: 8px 10px calc(14px + env(safe-area-inset-bottom));
+  }
+  .menu-panel button { min-height: 52px; }
+  .menu-grab { display: block; width: 44px; height: 5px; border-radius: 3px; background: var(--line); margin: 2px auto 6px; }
+}
+
+.addpanel { padding: 12px; border: 2px solid var(--brand); border-radius: var(--radius); background: var(--card); }
+.seg { display: flex; gap: 10px; }   /* two separate buttons, so it is clear there are two views to switch between */
+.seg button { flex: 1; min-height: 46px; padding: 6px 8px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); cursor: pointer; font-weight: 700; }
+.seg button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+:root[data-theme="dark"] .seg button[aria-pressed="true"] { background: var(--signal); border-color: var(--signal); color: var(--signal-ink); }
+.filterrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 42%); gap: 8px; }
+select.sortsel { width: auto; min-height: 38px; padding: 4px 10px; }
+.past-main { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 58px; padding: 6px 4px; background: transparent; border: 0; color: inherit; text-align: start; cursor: pointer; }
+.past-main .chev { flex: none; color: var(--muted); }
+.past-row .btn.plus { flex: none; width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 12px; font-size: 1.4rem; line-height: 1; }
+.past.open { margin: 4px 0; padding: 0 8px 8px; border: 1.5px solid var(--brand); border-radius: 12px; }
+.past-more { display: grid; gap: 8px; padding: 2px 0 4px; }

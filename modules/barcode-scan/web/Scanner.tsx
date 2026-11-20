@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ToolbarProps } from '../../../web/src/host';
-import { api, t, errText, getLang, formatMoney, isApiError } from './sdk';
+import { api, t, errText, getLang, formatMoney, isApiError, createPortal } from './sdk';
 import { makeDecoder, validBarcode } from './decode';
 
 type Product = { name: string; manufacturer: string; price: number; weighted: boolean; chain: { en: string; he: string }; branchName: string | null };
@@ -18,12 +18,12 @@ export default function ScanButton({ data, reload, storeId, mode }: ToolbarProps
   return (
     <>
       <button type="button" className="btn" style={{ minHeight: mode === 'shop' ? 48 : 46, whiteSpace: 'nowrap' }} onClick={() => setOpen(true)}>▦ {t('scanButton')}</button>
-      {open && <Scanner listId={data.list.id} reload={reload} storeId={storeId} mode={mode} onClose={() => setOpen(false)} />}
+      {open && <Scanner listId={data.list.id} canEdit={data.list.role !== 'viewer'} reload={reload} storeId={storeId} mode={mode} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function Scanner({ listId, reload, storeId, mode, onClose }: { listId: number; reload: () => Promise<void>; storeId: string; mode: 'shop' | 'manage'; onClose: () => void }) {
+function Scanner({ listId, canEdit, reload, storeId, mode, onClose }: { listId: number; canEdit: boolean; reload: () => Promise<void>; storeId: string; mode: 'shop' | 'manage'; onClose: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [camera, setCamera] = useState<'starting' | 'on' | 'off'>('starting');
@@ -32,10 +32,13 @@ function Scanner({ listId, reload, storeId, mode, onClose }: { listId: number; r
   const [typed, setTyped] = useState('');
   const [log, setLog] = useState<LogLine[]>([]);
   const [busy, setBusy] = useState(false);
-  const busyRef = useRef(false), pendingRef = useRef<Pending | null>(null), recent = useRef(new Map<string, number>()), lineId = useRef(0);
+  const [last, setLast] = useState<{ id: number; name: string } | null>(null);   // the item of the last scan, which can be renamed
+  const [draft, setDraft] = useState<string | null>(null);                         // the new name while it is being edited (null = not editing)
+  const busyRef = useRef(false), pendingRef = useRef<Pending | null>(null), editingRef = useRef(false), recent = useRef(new Map<string, number>()), lineId = useRef(0);
   const latest = useRef({ listId, storeId, mode, reload });
   latest.current = { listId, storeId, mode, reload };
   pendingRef.current = pending;
+  editingRef.current = draft !== null;      // the camera waits while a name is being typed
 
   const say = (text: string, kind: LogLine['kind'] = 'ok') => setLog((l) => [{ id: ++lineId.current, text, kind }, ...l].slice(0, 5));
 
@@ -55,7 +58,7 @@ function Scanner({ listId, reload, storeId, mode, onClose }: { listId: number; r
     try {
       const { listId: lid, storeId: sid, mode: m, reload: rl } = latest.current;
       const r = await api<Done | Confirm | Unknown>(`/lists/${lid}/scan`, { method: 'POST', body: { tick: m === 'shop', storeId: sid || undefined, ...body } });
-      if (r.status === 'done') { setPending(null); say(describe(r)); navigator.vibrate?.(40); await rl(); }
+      if (r.status === 'done') { setPending(null); setLast(r.item); setDraft(null); say(describe(r)); navigator.vibrate?.(40); await rl(); }
       else { setPending(r); setName(r.status === 'confirm' ? r.product.name : ''); navigator.vibrate?.([30, 40, 30]); }
     } catch (e) {
       setPending(null);
@@ -82,7 +85,7 @@ function Scanner({ listId, reload, storeId, mode, onClose }: { listId: number; r
         setCamera('on');
         const decoder = await makeDecoder();
         while (!stopped) {
-          if (!busyRef.current && !pendingRef.current && canvas.current) {
+          if (!busyRef.current && !pendingRef.current && !editingRef.current && canvas.current) {
             const code = await decoder.decode(v, canvas.current);
             if (code && validBarcode(code) && !stopped) onCode(code);
           }
@@ -94,6 +97,22 @@ function Scanner({ listId, reload, storeId, mode, onClose }: { listId: number; r
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Renames the item the last scan landed on. The barcode points at the item, so it keeps pointing at it under the new name.
+  const saveName = async (e: FormEvent) => {
+    e.preventDefault();
+    const nm = (draft ?? '').trim();
+    if (!last || !nm || busyRef.current) return;
+    if (nm === last.name) { setDraft(null); return; }
+    busyRef.current = true; setBusy(true);
+    try {
+      const r = await api<{ item: { id: number; name: string } }>(`/lists/${listId}/scan/rename`, { method: 'POST', body: { itemId: last.id, name: nm } });
+      say(t('scanRenamed', { from: last.name, to: r.item.name }));
+      setLast(r.item); setDraft(null);
+      await latest.current.reload();
+    } catch (err) { say(errText(err), 'error'); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+
   const submitTyped = (e: FormEvent) => {
     e.preventDefault();
     const code = typed.replace(/\D/g, '');
@@ -101,8 +120,10 @@ function Scanner({ listId, reload, storeId, mode, onClose }: { listId: number; r
     setTyped(''); recent.current.set(code, Date.now()); send({ code });
   };
 
-  return (
-    <div role="dialog" aria-modal="true" aria-label={t('scanTitle')} style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'var(--paper)', color: 'var(--text)', display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+  // Drawn in <body> and not where the button is: in Manage list that is inside the Add form, and the scanner's own buttons submitted it
+  // (the page reloaded to Home). The submit also stops here, as React events still travel up through a portal.
+  return createPortal(
+    <div role="dialog" aria-modal="true" onSubmit={(e) => e.stopPropagation()} aria-label={t('scanTitle')} style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'var(--paper)', color: 'var(--text)', display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingTop: 'env(safe-area-inset-top, 0px)' }}>
       <div className="row between" style={{ padding: '10px 14px' }}>
         <h2 style={{ margin: 0, fontSize: '1.15rem' }}>{t('scanTitle')}</h2>
         <button type="button" className="btn primary" onClick={onClose}>{t('scanClose')}</button>
@@ -121,9 +142,10 @@ function Scanner({ listId, reload, storeId, mode, onClose }: { listId: number; r
           <div className="card stack-sm" role="alert">
             <p><strong>{t('scanSeen', { product: pending.product.name })}</strong></p>
             <p>{t('scanConfirmQ', { item: pending.suggestion.name })}</p>
+            <label className="field"><span>{t('scanNewNameHint')}</span><input type="text" dir="auto" maxLength={100} value={name} onChange={(e) => setName(e.target.value)} /></label>
             <div className="row">
               <button type="button" className="btn primary" disabled={busy} onClick={() => send({ code: pending.code, itemId: pending.suggestion.id })}>{t('scanYes')}</button>
-              <button type="button" className="btn" disabled={busy} onClick={() => send({ code: pending.code, name })}>{t('scanNew')}</button>
+              <button type="button" className="btn" disabled={busy || !name.trim()} onClick={() => send({ code: pending.code, name })}>{t('scanNew')}</button>
               <button type="button" className="btn" onClick={() => setPending(null)}>{t('scanCancel')}</button>
             </div>
           </div>
@@ -140,6 +162,21 @@ function Scanner({ listId, reload, storeId, mode, onClose }: { listId: number; r
           </form>
         )}
 
+        {last && !pending && (draft === null ? (
+          <div className="card row between" data-testid="scan-last">
+            <strong dir="auto">{last.name}</strong>
+            {canEdit && <button type="button" className="btn" onClick={() => setDraft(last.name)}>{t('scanRename')}</button>}
+          </div>
+        ) : (
+          <form className="card stack-sm" onSubmit={saveName}>
+            <label className="field"><span>{t('scanNameLabel')}</span><input type="text" dir="auto" autoFocus maxLength={100} value={draft} onChange={(e) => setDraft(e.target.value)} /></label>
+            <div className="row">
+              <button type="submit" className="btn primary" disabled={busy || !draft.trim()}>{t('scanSave')}</button>
+              <button type="button" className="btn" onClick={() => setDraft(null)}>{t('scanCancel')}</button>
+            </div>
+          </form>
+        ))}
+
         <ul className="stack-sm" style={{ listStyle: 'none', padding: 0, margin: 0 }} aria-live="polite">
           {log.map((l) => <li key={l.id} className={l.kind === 'ok' ? 'ok' : 'error'} dir="auto">{l.kind === 'ok' ? '✓ ' : ''}{l.text}</li>)}
         </ul>
@@ -149,6 +186,7 @@ function Scanner({ listId, reload, storeId, mode, onClose }: { listId: number; r
           <button type="submit" className="btn" style={{ alignSelf: 'end' }} disabled={busy}>{t('scanLookUp')}</button>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
