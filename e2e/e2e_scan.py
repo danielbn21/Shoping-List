@@ -76,7 +76,7 @@ with sync_playwright() as p:
     check("Manage list has a Scan button with its own hint", True)
     page.get_by_role("button", name="Done").click()
     add_box, scan_box = page.get_by_role("button", name="Add", exact=True).bounding_box(), page.get_by_role("button", name="Scan").bounding_box()
-    check("1.6.1: in Manage list the Scan button is in the same row as Add, to its right", abs((add_box["y"] + add_box["height"] / 2) - (scan_box["y"] + scan_box["height"] / 2)) < 6 and scan_box["x"] > add_box["x"], f"{add_box} {scan_box}")
+    check("1.7.2: in Manage list the Scan button is in the same row as Add, between the field and Add", abs((add_box["y"] + add_box["height"] / 2) - (scan_box["y"] + scan_box["height"] / 2)) < 6 and scan_box["x"] < add_box["x"], f"{add_box} {scan_box}")
     page.get_by_role("button", name="Scan").click()
     page.wait_for_selector("text=Each scan adds the item to the list.")
     page.get_by_role("button", name="Done").click()
@@ -107,6 +107,54 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Look up").click()
     page.wait_for_selector("text=not a valid barcode")
     check("a typed number with a wrong check digit is refused", True)
+    br.close()
+
+    # ---- a third phone without a camera (typed numbers only; a camera pointing at a known barcode would keep scanning it)
+    br = p.chromium.launch()
+    ctx = br.new_context(viewport={"width": 390, "height": 844}, locale="en-US", storage_state="/tmp/scan-state.json")
+    page = ctx.new_page()
+    page.goto(BASE)
+    page.get_by_text("Groceries").first.click()
+
+    # ---- 1.7.0: an unknown barcode in Manage list. The scanner used to sit inside the Add form: naming the item submitted that form
+    # (the page reloaded to Home and nothing was added). Text typed in the Add field must also stay out of it.
+    UNK = "7290000000039"
+    page.get_by_role("button", name="Manage list").click()
+    page.get_by_placeholder("Add an item").fill("Bread")
+    navs = []
+    page.on("framenavigated", lambda f: navs.append(f.url) if f == page.main_frame else None)
+    page.get_by_role("button", name="Scan").click()
+    page.get_by_label("Or type the barcode number").fill(UNK)
+    page.get_by_role("button", name="Look up").click()
+    page.wait_for_selector("text=not in the price files")
+    check("1.7.0: the scanner is drawn in <body>, outside the Add form", page.evaluate("() => !document.querySelector('[role=dialog]').closest('form')"))
+    page.locator("[role=alert] input").fill("Tehina jar")
+    page.locator("[role=alert]").get_by_role("button", name="Add", exact=True).click()
+    page.wait_for_selector("text=Tehina jar: added to the list")
+    check("1.7.0: naming an unknown barcode in Manage list does not leave the list (no page reload)", not navs and page.locator("[role=dialog]").count() == 1, str(navs))
+    e = entries(ctx, lid)
+    check("1.7.0: the item was added, and the text typed in the Add field was not", "Tehina jar" in e and "Bread" not in e, str(list(e)))
+
+    # ---- 1.7.0: rename what was just scanned; the barcode stays attached
+    page.get_by_role("button", name="Edit name").click()
+    page.get_by_label("Item name").fill("Tehina (family jar)")
+    page.get_by_role("button", name="Save", exact=True).click()
+    page.wait_for_selector("text=is now")
+    e = entries(ctx, lid)
+    check("1.7.0: renaming the scanned item changes it on the list", "Tehina (family jar)" in e and "Tehina jar" not in e, str(list(e)))
+    page.get_by_label("Or type the barcode number").fill(UNK)
+    page.get_by_role("button", name="Look up").click()
+    page.wait_for_selector("text=Tehina (family jar): now 2", timeout=10000)
+    e = entries(ctx, lid)
+    check("1.7.0: scanning the same barcode again finds the renamed item, not a new one", len([n for n in e if n.startswith("Tehina")]) == 1, str(list(e)))
+    # a name another item has is refused with a message, the dialog stays
+    page.get_by_role("button", name="Edit name").click()
+    page.get_by_label("Item name").fill("Grandma jam")
+    page.get_by_role("button", name="Save", exact=True).click()
+    page.wait_for_selector("text=already exists")
+    check("1.7.0: a name that another item already has is refused", "Tehina (family jar)" in entries(ctx, lid))
+    page.screenshot(path="/tmp/shots/20-scan-rename.png")
+    page.get_by_role("button", name="Cancel").click()
     br.close()
 
 print("FAILED: " + (", ".join(errors) if errors else "none"))

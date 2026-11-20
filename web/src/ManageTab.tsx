@@ -11,10 +11,8 @@ import { catName, fmt } from './util';
 import { SortableList, SortableRow, useDndSensors } from './dnd';
 import type { Cat, CatalogSuggestion, Detail, Entry, Me, PastItem, Store } from './types';
 import { useSlots } from './slots';
-import Section from './Section';
-import { orderSections, usePrefs } from './prefs';
 
-type Props = { data: Detail; me: Me; reload: () => Promise<void>; onDeleted: () => void };
+type Props = { data: Detail; me: Me; reload: () => Promise<void> };
 
 // The active screen: everything that changes what is on the list or how it is organised.
 // Small controls that modules add next to the Add button (for example scanning a barcode); nothing is drawn without one.
@@ -23,28 +21,19 @@ function ManageToolbar({ data, me, reload }: { data: Detail; me: Me; reload: () 
   return <>{items.map((m) => <m.component key={`${m.moduleId}:${m.id}`} data={data} me={me} reload={reload} storeId="" />)}</>;
 }
 
-export default function ManageTab({ data, me, reload, onDeleted }: Props) {
-  const isOwner = data.list.role === 'owner';
-  const moduleSections = useSlots('manage.section', { me, data }); // sections added by modules
-  const saved = usePrefs().manageOrder;
-  // Every section is collapsible; the user chooses their order in Settings (module sections take part under "<module>:<id>").
-  const sections: Record<string, { title: string; node: ReactNode } | null> = {
-    add: { title: t('addItems'), node: <AddItem data={data} me={me} reload={reload} /> },
-    onlist: { title: t('onThisList'), node: <OnThisList data={data} reload={reload} /> },
-    past: { title: t('fromHistory'), node: <PastItems data={data} reload={reload} /> },
-    csv: { title: t('csvTitle'), node: <CsvCard data={data} reload={reload} /> },
-    categories: { title: t('categoriesOrder'), node: <CategoriesCard data={data} reload={reload} /> },
-    stores: { title: t('stores'), node: <StoresCard data={data} reload={reload} /> },
-    people: isOwner ? { title: t('people'), node: <PeopleCard data={data} /> } : null,
-    listsettings: isOwner ? { title: t('listNameLabel'), node: <ListSettings data={data} reload={reload} onDeleted={onDeleted} /> } : null,
-  };
-  for (const m of moduleSections) sections[`${m.moduleId}:${m.id}`] = { title: m.title(), node: <m.component data={data} me={me} reload={reload} /> };
+export default function ManageTab({ data, me, reload }: Props) {
+  // Adding comes first; below it one switch between the items this list has had and what is on it now. The rarely used parts of managing a
+  // list (name, people, stores, categories, backup, module settings) are in the list's burger menu (see ListPages.tsx).
+  const [view, setView] = useState<'past' | 'onlist'>('past');
+  const toBuy = data.entries.filter((e) => e.state === 'open').length;
   return (
     <div className="stack">
-      {orderSections(moduleSections.map((m) => `${m.moduleId}:${m.id}`), saved).map((id) => {
-        const s = sections[id];
-        return s ? <Section key={id} id={id} title={s.title}>{s.node}</Section> : null;
-      })}
+      <AddItem data={data} me={me} reload={reload} />
+      <div className="seg" role="group" aria-label={t('manageView')}>
+        <button type="button" aria-pressed={view === 'past'} onClick={() => setView('past')}>{t('viewPast')}</button>
+        <button type="button" aria-pressed={view === 'onlist'} onClick={() => setView('onlist')}>{t('viewOnList', { n: toBuy })}</button>
+      </div>
+      {view === 'past' ? <PastItems data={data} reload={reload} /> : <OnThisList data={data} reload={reload} />}
     </div>
   );
 }
@@ -141,9 +130,11 @@ function AddItem({ data, me, reload }: { data: Detail; me: Me; reload: () => Pro
 
   return (
     <form className="stack-sm" onSubmit={submit}>
-      <label className="field"><span>{t('itemLabel')}</span>
-        <input type="text" dir="auto" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('addItemPlaceholder')} autoComplete="off" enterKeyHint="done" style={{ minHeight: 52, fontSize: '1.05rem' }} />
-      </label>
+      <div className="addrow">
+        <input type="text" dir="auto" aria-label={t('itemLabel')} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('addItemPlaceholder')} autoComplete="off" enterKeyHint="done" />
+        <ManageToolbar data={data} me={me} reload={reload} />
+        {!name && <button className="btn primary" type="submit" disabled>{t('add')}</button>}
+      </div>
 
       {similar && (
         <div className="suggest" role="alert">
@@ -180,31 +171,33 @@ function AddItem({ data, me, reload }: { data: Detail; me: Me; reload: () => Pro
         </div>
       )}
 
-      <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'nowrap' }}>
-        <label className="field" style={{ width: 96 }}><span>{t('quantityLabel')}</span>
-          <input type="number" inputMode="decimal" min="0.01" step="any" value={qty} onChange={(e) => setQty(e.target.value)} dir="ltr" style={{ textAlign: 'center' }} />
-        </label>
-        <button className="btn primary grow" type="submit" disabled={!name || creatingCat} style={{ minHeight: 46 }}>{t('add')}</button>
-        <ManageToolbar data={data} me={me} reload={reload} />
-      </div>
-
-      <label className="field"><span>{t('categoryLabel')}</span>
-        <select value={catId} onChange={(e) => setCatId(e.target.value)}>
-          <option value="">{t('uncategorized')}</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{catName(c)}</option>)}
-          <option value="__new__">{t('newCategoryOption')}</option>
-        </select>
-      </label>
-      {creatingCat && (
-        <div className="inline-form">
-          <input type="text" dir="auto" autoFocus value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder={t('newCategoryName')} aria-label={t('newCategoryName')}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createCategory(); } }} />
-          <button type="button" className="btn" onClick={createCategory} disabled={!newCat.trim()}>{t('createCategory')}</button>
+      {name && (
+        <div className="addpanel stack-sm">
+          <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'nowrap' }}>
+            <label className="field grow"><span>{t('categoryLabel')}</span>
+              <select value={catId} onChange={(e) => setCatId(e.target.value)}>
+                <option value="">{t('uncategorized')}</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{catName(c)}</option>)}
+                <option value="__new__">{t('newCategoryOption')}</option>
+              </select>
+            </label>
+            <label className="field" style={{ width: 96 }}><span>{t('quantityLabel')}</span>
+              <input type="number" inputMode="decimal" min="0.01" step="any" value={qty} onChange={(e) => setQty(e.target.value)} dir="ltr" style={{ textAlign: 'center' }} />
+            </label>
+          </div>
+          {creatingCat && (
+            <div className="inline-form">
+              <input type="text" dir="auto" autoFocus value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder={t('newCategoryName')} aria-label={t('newCategoryName')}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createCategory(); } }} />
+              <button type="button" className="btn" onClick={createCategory} disabled={!newCat.trim()}>{t('createCategory')}</button>
+            </div>
+          )}
+          <label className="field"><span>{t('noteLabel')}</span>
+            <input type="text" dir="auto" value={note} onChange={(e) => setNote(e.target.value)} />
+          </label>
+          <button className="btn primary" type="submit" disabled={creatingCat} style={{ minHeight: 48 }}>{t('add')}</button>
         </div>
       )}
-      <label className="field"><span>{t('noteLabel')}</span>
-        <input type="text" dir="auto" value={note} onChange={(e) => setNote(e.target.value)} />
-      </label>
       {error && <p className="error" role="alert">{error}</p>}
     </form>
   );
@@ -377,6 +370,8 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
   const [sort, setSort] = useState<'recent' | 'name'>('recent');
   const [items, setItems] = useState<PastItem[] | null>(null);
   const [qtys, setQtys] = useState<Record<number, number>>({});
+  const [notes, setNotes] = useState<Record<number, string>>({});   // a note for this trip, typed in the open row
+  const [openId, setOpenId] = useState<number | null>(null);        // the row whose controls are open (quantity, note, edit, remove)
   const [editing, setEditing] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -416,17 +411,12 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
 
   return (
     <div className="stack-sm">
-      <p className="muted">{t('pastHelp')}</p>
-      <input type="search" dir="auto" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('searchBank')} aria-label={t('searchBank')} style={{ minHeight: 48 }} />
-      <div className="row">
-        <select className="grow" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label={t('categoryLabel')}>
+      <div className="filterrow">
+        <input type="search" dir="auto" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('searchBank')} aria-label={t('searchBank')} />
+        <select value={filter} onChange={(e) => setFilter(e.target.value)} aria-label={t('categoryLabel')}>
           <option value="">{t('allCategories')}</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{catName(c)}</option>)}
           <option value="none">{t('uncategorized')}</option>
-        </select>
-        <select value={sort} onChange={(e) => setSort(e.target.value as 'recent' | 'name')} aria-label={t('sortName')}>
-          <option value="recent">{t('sortRecent')}</option>
-          <option value="name">{t('sortName')}</option>
         </select>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
@@ -443,14 +433,19 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
                   <button type="button" className="btn small" onClick={stopSelecting}>{t('pastSelectDone')}</button>
                 </span>
               </>
-            : <button type="button" className="btn small" onClick={() => setSelecting(true)}>{t('pastSelect')}</button>}
+            : <>
+                <select className="sortsel" value={sort} onChange={(e) => setSort(e.target.value as 'recent' | 'name')} aria-label={t('sortName')}>
+                  <option value="recent">{t('sortRecent')}</option>
+                  <option value="name">{t('sortName')}</option>
+                </select>
+                <button type="button" className="btn small" onClick={() => setSelecting(true)}>{t('pastSelect')}</button>
+              </>}
         </div>
       )}
       {items && !shown.length && <p className="muted">{t('bankEmpty')}</p>}
       <div>
         {shown.map((i) => {
           const n = qtys[i.id] ?? 1;
-          const open = editing === i.id;
           const caption = i.timesPurchased > 0 ? t('boughtShort', { n: i.timesPurchased, when: timeAgo(i.lastPurchasedAt) }) : t('neverBought');
           const full = [i.onListQty > 0 ? t('onListQty', { n: fmt(i.onListQty) }) : '',
             i.timesPurchased > 0 ? `${t('boughtTimes', { n: i.timesPurchased })} · ${t('lastBought', { when: timeAgo(i.lastPurchasedAt) })}` : t('neverBought')].filter(Boolean).join(' · ');
@@ -466,26 +461,41 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
               </label>
             );
           }
+          const addOne = (count: number) => run(async () => {
+            await api(`/lists/${list.id}/entries`, { method: 'POST', body: { itemId: i.id, quantity: count, note: (notes[i.id] ?? '').trim() || undefined, source: 'typeahead' } });
+            setQtys((x) => ({ ...x, [i.id]: 1 })); setNotes((x) => ({ ...x, [i.id]: '' }));
+          });
+          const isOpen = openId === i.id;
           return (
-            <div className="past" key={i.id}>
+            <div className={`past${isOpen ? ' open' : ''}`} key={i.id}>
               <div className="past-row">
-                <div className="past-name" dir="auto" title={`${i.name} · ${full}`}>
-                  <span className="past-top">
-                    <strong dir="auto">{i.name}</strong>
-                    {i.onListQty > 0 && <span className="onlist" aria-label={t('onListQty', { n: fmt(i.onListQty) })}>×{fmt(i.onListQty)}</span>}
+                <button type="button" className="past-main" aria-expanded={isOpen} onClick={() => { setOpenId(isOpen ? null : i.id); setEditing(null); }}>
+                  <span className="past-name" dir="auto" title={`${i.name} · ${full}`}>
+                    <span className="past-top">
+                      <strong dir="auto">{i.name}</strong>
+                      {i.onListQty > 0 && <span className="onlist" aria-label={t('onListQty', { n: fmt(i.onListQty) })}>×{fmt(i.onListQty)}</span>}
+                    </span>
+                    <small className="muted">{caption}</small>
                   </span>
-                  <small className="muted">{caption}</small>
-                </div>
-                <Stepper value={n} onChange={(v) => setQtys({ ...qtys, [i.id]: v })} />
-                <button className="btn small primary" aria-label={t('addToList')} onClick={() => run(async () => {
-                  await api(`/lists/${list.id}/entries`, { method: 'POST', body: { itemId: i.id, quantity: n, source: 'typeahead' } });
-                  setQtys({ ...qtys, [i.id]: 1 });
-                })}>{t('add')}</button>
-                <button className="iconbtn" aria-label={t('editItem')} aria-expanded={open} onClick={() => setEditing(open ? null : i.id)}>✎</button>
-                {i.onListQty === 0 && <button className="iconbtn danger" aria-label={t('removeFromBank')} title={t('removeFromBank')}
-                  onClick={() => removeItems([i.id], t('confirmRemoveBank', { name: i.name }))}>✕</button>}
+                  <span className="chev" aria-hidden="true">{isOpen ? '▴' : '▾'}</span>
+                </button>
+                <button type="button" className="btn primary plus" aria-label={t('addToList')} title={t('addToList')} onClick={() => addOne(n)}>+</button>
               </div>
-              {open && <ItemEditor item={i} categories={categories} onCancel={() => setEditing(null)} onSaved={async () => { await reload(); await load(); setEditing(null); }} />}
+              {isOpen && (
+                <div className="past-more">
+                  <div className="row" style={{ flexWrap: 'nowrap' }}>
+                    <Stepper value={n} onChange={(v) => setQtys({ ...qtys, [i.id]: v })} />
+                    <input type="text" dir="auto" className="grow" aria-label={t('noteLabel')} placeholder={t('noteForTrip')} value={notes[i.id] ?? ''} onChange={(e) => setNotes({ ...notes, [i.id]: e.target.value })} />
+                  </div>
+                  <div className="row" style={{ flexWrap: 'nowrap' }}>
+                    <button type="button" className="iconbtn" aria-label={t('editItem')} aria-expanded={editing === i.id} onClick={() => setEditing(editing === i.id ? null : i.id)}>✎</button>
+                    {i.onListQty === 0 && <button type="button" className="iconbtn danger" aria-label={t('removeFromBank')} title={t('removeFromBank')}
+                      onClick={() => removeItems([i.id], t('confirmRemoveBank', { name: i.name }))}>✕</button>}
+                    <button type="button" className="btn primary grow" onClick={() => addOne(n)}>{t('addNToList', { n: fmt(n) })}</button>
+                  </div>
+                  {editing === i.id && <ItemEditor item={i} categories={categories} onCancel={() => setEditing(null)} onSaved={async () => { await reload(); await load(); setEditing(null); }} />}
+                </div>
+              )}
             </div>
           );
         })}
@@ -534,7 +544,7 @@ function ItemEditor({ item, categories, onSaved, onCancel }: { item: PastItem; c
 
 /* ---------------- categories: order, rename, add, delete ---------------- */
 
-function CategoriesCard({ data, reload }: { data: Detail; reload: () => Promise<void> }) {
+export function CategoriesCard({ data, reload }: { data: Detail; reload: () => Promise<void> }) {
   const hid = data.list.householdId;
   const [cats, setCats] = useState<Cat[]>(data.categories);
   const [renaming, setRenaming] = useState<number | null>(null);
@@ -598,7 +608,7 @@ function StoreLayout({ store, categories, reload }: { store: Store; categories: 
   );
 }
 
-function StoresCard({ data, reload }: { data: Detail; reload: () => Promise<void> }) {
+export function StoresCard({ data, reload }: { data: Detail; reload: () => Promise<void> }) {
   const hid = data.list.householdId;
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -629,7 +639,7 @@ function StoresCard({ data, reload }: { data: Detail; reload: () => Promise<void
 
 /* ---------------- who is an editor and who is a shopper ---------------- */
 
-function PeopleCard({ data }: { data: Detail }) {
+export function PeopleCard({ data }: { data: Detail }) {
   const [people, setPeople] = useState<{ userId: number; name: string; role: string; locked: boolean }[]>([]);
   const [isPrivate, setIsPrivate] = useState(false);
   const [error, setError] = useState('');
@@ -664,7 +674,7 @@ function PeopleCard({ data }: { data: Detail }) {
   );
 }
 
-function ListSettings({ data, reload, onDeleted }: { data: Detail; reload: () => Promise<void>; onDeleted: () => void }) {
+export function ListSettings({ data, reload, onDeleted }: { data: Detail; reload: () => Promise<void>; onDeleted: () => void }) {
   const [name, setName] = useState(data.list.name);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
@@ -694,7 +704,7 @@ function ListSettings({ data, reload, onDeleted }: { data: Detail; reload: () =>
 type ImportRow = { line: number; name: string; action: string; matchedName: string | null; similarTo: string | null; category: string; newCategory: boolean; price: number | null; quantity: number; warnings: string[] };
 type ImportPlan = { applied: boolean; summary: { create: number; update: number; skip: number; duplicateInFile: number; similar: number; addToList: number; pastItems: number; newCategories: number }; rows: ImportRow[] };
 
-function CsvCard({ data, reload }: { data: Detail; reload: () => Promise<void> }) {
+export function CsvCard({ data, reload }: { data: Detail; reload: () => Promise<void> }) {
   const [csv, setCsv] = useState<string | null>(null);
   const [fileName, setFileName] = useState('');
   const [overwrite, setOverwrite] = useState(false);
