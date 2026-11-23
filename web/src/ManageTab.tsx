@@ -701,8 +701,8 @@ export function ListSettings({ data, reload, onDeleted }: { data: Detail; reload
 
 /* ---------------- CSV: back up the item bank, restore it, or carry items to another list or household ---------------- */
 
-type ImportRow = { line: number; name: string; action: string; matchedName: string | null; similarTo: string | null; category: string; newCategory: boolean; price: number | null; quantity: number; warnings: string[] };
-type ImportPlan = { applied: boolean; summary: { create: number; update: number; skip: number; duplicateInFile: number; similar: number; addToList: number; pastItems: number; newCategories: number }; rows: ImportRow[] };
+type ImportRow = { line: number; name: string; action: string; matchedName: string | null; similarTo: string | null; category: string; newCategory: boolean; price: number | null; quantity: number; warnings: string[]; relinks?: { code: string; fromName: string | null }[] };
+type ImportPlan = { applied: boolean; summary: { create: number; update: number; skip: number; duplicateInFile: number; similar: number; addToList: number; pastItems: number; newCategories: number; extraColumns?: number; extraRelinks?: number }; rows: ImportRow[] };
 
 export function CsvCard({ data, reload }: { data: Detail; reload: () => Promise<void> }) {
   const [csv, setCsv] = useState<string | null>(null);
@@ -752,12 +752,13 @@ export function CsvCard({ data, reload }: { data: Detail; reload: () => Promise<
           <p><strong>{t('csvSummary', { create: s.create, update: s.update, addToList: s.addToList, skip: s.skip + s.duplicateInFile })}</strong></p>
           {s.pastItems > 0 && <p className="muted">{t('csvPast', { n: s.pastItems })}</p>}
           {s.similar > 0 && <p className="muted">{t('csvSimilar', { n: s.similar })}</p>}
+          {(s.extraColumns ?? 0) > 0 && <p className="muted">{t('csvBarcodes', { n: s.extraColumns ?? 0 })}{(s.extraRelinks ?? 0) > 0 ? ` ${t('csvBarcodeMoves', { n: s.extraRelinks ?? 0 })}` : ''}</p>}
           <div className="scroll-x">
             <table className="log">
               <tbody>
                 {plan.rows.slice(0, 60).map((r) => (
                   <tr key={r.line}>
-                    <td>{r.name || '—'}{r.similarTo && r.action === 'create' ? <span className="muted"> ≈ {r.similarTo}</span> : null}</td>
+                    <td>{r.name || '—'}{r.similarTo && r.action === 'create' ? <span className="muted"> ≈ {r.similarTo}</span> : null}{(r.relinks ?? []).map((x) => <div key={x.code} className="muted" dir="ltr" style={{ fontSize: '.8rem' }}>{x.fromName ? t('csvBarcodeFrom', { code: x.code, from: x.fromName }) : x.code}</div>)}</td>
                     <td><span className="chip">{label(r.action)}</span></td>
                     <td>{r.quantity > 0 ? `×${fmt(r.quantity)}` : ''}</td>
                   </tr>

@@ -1,6 +1,6 @@
 import { validVersion, satisfies } from './semver.js';
 
-export const SLOTS = ['list.tab', 'manage.section', 'settings.section', 'admin.section', 'shop.toolbar', 'manage.toolbar'];
+export const SLOTS = ['list.tab', 'manage.section', 'settings.section', 'admin.section', 'shop.toolbar', 'manage.toolbar', 'trip.toolbar'];
 export const KINDS = ['feature', 'language'];
 const ID = /^[a-z][a-z0-9-]{1,39}$/;
 const FILE = /^[A-Za-z0-9_.\/-]{1,80}$/;
