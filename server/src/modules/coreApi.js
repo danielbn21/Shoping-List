@@ -71,7 +71,7 @@ export function makeCoreApi(app) {
       if (norm !== item.name_norm) app.modules.events.emit('item.renamed', { itemId: item.id, householdId: acc.list.household_id });
       return { itemId: item.id, name: nm, previousName: item.name };
     },
-    scanItem: ({ user, listId, itemId = null, name = null, price = null, tick = false }) => {
+    scanItem: ({ user, listId, itemId = null, name = null, price = null, tick = false, categoryId = null }) => {
       const acc = listAccess(user, Number(listId));
       if (!acc) return { error: 'not_found' };
       const hid = acc.list.household_id, lid = acc.list.id;
@@ -107,11 +107,93 @@ export function makeCoreApi(app) {
           const r = addToList(db, { listId: lid, item, quantity: 1, userId: user.id });
           action = r.merged ? 'merged' : 'added'; entryId = r.entryId;
         }
+        // since 1.8.0: a category (one of the household's) is given to an item made by this scan, or to an existing one that has none; a category the item has is left alone
+        const cat = categoryId ? db.prepare('SELECT id FROM categories WHERE id = ? AND household_id = ?').get(Number(categoryId), hid) : null;
+        if (cat && (created || !item.category_id) && canEdit(acc)) db.prepare('UPDATE items SET category_id = ? WHERE id = ?').run(cat.id, item.id);
         const p = Number(price);
         const priceSaved = Number.isFinite(p) && p > 0 && p < 1e5;
-        if (priceSaved) db.prepare('UPDATE items SET price = ? WHERE id = ?').run(Math.round(p * 100) / 100, item.id);
-        return { itemId: item.id, name: item.name, entryId, action, created, quantity: db.prepare('SELECT quantity FROM list_entries WHERE id = ?').get(entryId).quantity, priceSaved };
+        const previousPrice = item.price ?? null, savedPrice = priceSaved ? Math.round(p * 100) / 100 : null;   // since 1.8.0, so a reversal can put the old price back
+        if (priceSaved) db.prepare('UPDATE items SET price = ? WHERE id = ?').run(savedPrice, item.id);
+        return { itemId: item.id, name: item.name, entryId, action, created, quantity: db.prepare('SELECT quantity FROM list_entries WHERE id = ?').get(entryId).quantity, priceSaved, previousPrice, savedPrice, categoryId: db.prepare('SELECT category_id FROM items WHERE id = ?').get(item.id).category_id ?? null };
       })();
+    },
+
+    // ---- since 1.8.0 ----
+    // The household's categories: [{ id, nameEn, nameHe }] in the household's order.
+    listCategories: (householdId) => db.prepare('SELECT id, name_en AS nameEn, name_he AS nameHe FROM categories WHERE household_id = ? ORDER BY sort, id').all(Number(householdId)),
+    // The household's items (archived ones left out): [{ id, name, categoryId, createdAt }]. With q, only items whose name has every word of q
+    // (normalised, so English and Hebrew spellings match), best first; limit is at most 5000.
+    householdItems: (householdId, { q = '', limit = 20 } = {}) => {
+      const lim = Math.max(1, Math.min(5000, Number(limit) || 20));
+      const rows = db.prepare('SELECT id, name, name_norm, category_id, created_at FROM items WHERE household_id = ? AND archived = 0 ORDER BY id DESC').all(Number(householdId));
+      const words = normalize(String(q || '')).split(' ').filter(Boolean);
+      const out = words.length
+        ? rows.filter((r) => words.every((w) => r.name_norm.includes(w))).sort((a, b) => (b.name_norm.startsWith(words[0]) - a.name_norm.startsWith(words[0])) || a.name.length - b.name.length)
+        : rows;
+      return out.slice(0, lim).map((r) => ({ id: r.id, name: r.name, categoryId: r.category_id ?? null, createdAt: r.created_at }));
+    },
+    // Sets (or clears, with categoryId null) an item's category. Needs edit rights on the list; the category must be the household's.
+    setItemCategory: ({ user, listId, itemId, categoryId }) => {
+      const acc = listAccess(user, Number(listId));
+      if (!acc) return { error: 'not_found' };
+      if (!canEdit(acc)) return { error: 'forbidden' };
+      const hid = acc.list.household_id;
+      const item = db.prepare('SELECT id, category_id FROM items WHERE id = ? AND household_id = ? AND archived = 0').get(Number(itemId), hid);
+      if (!item) return { error: 'not_found' };
+      let cid = null;
+      if (categoryId) {
+        cid = Number(categoryId);
+        if (!db.prepare('SELECT 1 FROM categories WHERE id = ? AND household_id = ?').get(cid, hid)) return { error: 'invalid_category' };
+      }
+      db.prepare('UPDATE items SET category_id = ? WHERE id = ?').run(cid, item.id);
+      return { itemId: item.id, categoryId: cid, previousCategoryId: item.category_id ?? null };
+    },
+    // Takes back what scanItem() did, using what it returned ({ itemId, entryId, action, created }). Only while the entry is still as the scan left it:
+    //   ticked -> unticked; more -> quantity - 1; added or merged -> removed (merged: quantity - 1); added_ticked -> removed.
+    // An item that the scan itself created, and nothing else uses, is deleted again. -> { reversed: true, result, itemRemoved } | { reversed: false, reason: 'changed' } | { error }
+    reverseScan: ({ user, listId, itemId, entryId, action, created = false, restorePrice = null }) => {
+      const acc = listAccess(user, Number(listId));
+      if (!acc) return { error: 'not_found' };
+      const hid = acc.list.household_id, lid = acc.list.id;
+      if (action !== 'ticked' && action !== 'more' && !canEdit(acc)) return { error: 'forbidden' };
+      if (!['ticked', 'more', 'merged', 'added', 'added_ticked'].includes(action)) return { error: 'invalid_action' };
+      const done = db.transaction(() => {
+        const entry = db.prepare('SELECT * FROM list_entries WHERE id = ? AND list_id = ? AND item_id = ? AND deleted = 0').get(Number(entryId), lid, Number(itemId));
+        if (!entry) return { reversed: false, reason: 'changed' };
+        const now = Date.now();
+        const drop = () => {
+          db.prepare('UPDATE list_entries SET deleted = 1, updated_at = ? WHERE id = ?').run(now, entry.id);
+          const left = db.prepare("SELECT COUNT(*) c FROM list_entries WHERE list_id = ? AND state = 'in_cart' AND deleted = 0").get(lid).c;
+          if (!left) db.prepare('DELETE FROM trips WHERE list_id = ? AND finished_at IS NULL').run(lid);   // nobody is shopping any more
+        };
+        let result;
+        if (action === 'ticked') {
+          if (entry.state !== 'in_cart') return { reversed: false, reason: 'changed' };
+          checkEntry(db, { entry, householdId: hid, userId: user.id, checked: false }); result = 'unticked';
+        } else if (action === 'more' || action === 'merged') {
+          if (entry.state !== (action === 'more' ? 'in_cart' : 'open')) return { reversed: false, reason: 'changed' };
+          const q = entry.quantity - 1;
+          if (q > 0) { db.prepare('UPDATE list_entries SET quantity = ?, updated_at = ? WHERE id = ?').run(q, now, entry.id); result = 'less'; }
+          else if (action === 'merged') { drop(); result = 'removed'; }
+          else return { reversed: false, reason: 'changed' };
+        } else {
+          if (entry.state !== (action === 'added_ticked' ? 'in_cart' : 'open')) return { reversed: false, reason: 'changed' };
+          drop(); result = 'removed';
+        }
+        // the scan saved a price on the item: put the old one back, unless the price has been changed since
+        if (restorePrice && Number.isFinite(Number(restorePrice.to))) {
+          const cur = db.prepare('SELECT price FROM items WHERE id = ?').get(Number(itemId))?.price;
+          if (cur === Number(restorePrice.to)) db.prepare('UPDATE items SET price = ? WHERE id = ?').run(restorePrice.from === null || restorePrice.from === undefined ? null : Number(restorePrice.from), Number(itemId));
+        }
+        let itemRemoved = false;
+        if (created && result === 'removed') {
+          const used = db.prepare('SELECT (SELECT COUNT(*) FROM list_entries WHERE item_id = ? AND deleted = 0) + (SELECT COUNT(*) FROM purchase_events WHERE item_id = ?) AS n').get(Number(itemId), Number(itemId)).n;
+          if (!used) { db.prepare('DELETE FROM items WHERE id = ? AND household_id = ?').run(Number(itemId), hid); itemRemoved = true; }
+        }
+        return { reversed: true, result, itemRemoved };
+      })();
+      if (done.itemRemoved) app.modules.events.emit('item.deleted', { itemId: Number(itemId), householdId: hid });
+      return done;
     },
     audit: (actorId, action, target = null, detail = null) => audit(db, actorId, action, target, detail),
   });

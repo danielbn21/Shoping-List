@@ -33,7 +33,7 @@ A shipped module (zip or bundled folder) holds `manifest.json`, `server/`, `web.
   "requires": { "core": ">=1.3.0 <2.0.0" },
   "dependsOn": [],
   "provides": ["price-source"],
-  "slots": ["list.tab", "manage.section", "settings.section", "admin.section", "shop.toolbar", "manage.toolbar"],
+  "slots": ["list.tab", "manage.section", "settings.section", "admin.section", "shop.toolbar", "manage.toolbar", "trip.toolbar"],
   "server": "server/index.js",
   "web": "web.js",
   "i18n": "i18n.json"
@@ -64,6 +64,8 @@ export default function register(ctx) {
   ctx.core.listPastItems(listId);                                    // since 1.7.0: [{ itemId, name }] the list's past items, newest first
   ctx.core.scanItem({ user, listId, itemId, name, price, tick });   // since 1.6.0, the one write: puts an item on the list or ticks it (see below)
   ctx.core.renameItem({ user, listId, itemId, name });             // since 1.7.0: renames a household item ({ itemId, name, previousName } or { error }); Owner/Editor, name unique in the household
+  ctx.core.listCategories(householdId); ctx.core.householdItems(householdId, { q, limit }); ctx.core.setItemCategory({ user, listId, itemId, categoryId });   // since 1.8.0
+  ctx.core.reverseScan({ user, listId, itemId, entryId, action, created, restorePrice });                                   // since 1.8.0: takes back a scanItem (see below)
   ctx.capability('barcode-lookup', userId);                          // since 1.6.0: another module's capability for this user, or null
 }
 ```
@@ -72,7 +74,9 @@ Rules enforced when a module is installed: only `node:` built-ins and relative i
 
 ### The scan API (since 1.6.0)
 
-`ctx.core.scanItem({ user, listId, itemId?, name?, price?, tick })` is the only way a module changes a list. It goes through the same code as every other way of adding an item (so the item joins the list's past items): give an `itemId` of the list's household, or a `name` (an exact normalised name reuses the household item, otherwise a new item is created). `price`, when given, becomes the item's saved price. With `tick: true` (shopping) an open entry is ticked, an entry already in the cart gets quantity + 1, and an item that is not on the list is added already ticked; with `tick: false` the item is added (or merged into the open entry). Ticking needs any role that can see the list, adding or creating needs Owner or Editor. Returns `{ itemId, name, entryId, action, created, quantity, priceSaved }` or `{ error: 'not_found' | 'forbidden' | 'invalid_name' }`.
+`ctx.core.scanItem({ user, listId, itemId?, name?, price?, tick })` is the only way a module changes a list. It goes through the same code as every other way of adding an item (so the item joins the list's past items): give an `itemId` of the list's household, or a `name` (an exact normalised name reuses the household item, otherwise a new item is created). `price`, when given, becomes the item's saved price. With `tick: true` (shopping) an open entry is ticked, an entry already in the cart gets quantity + 1, and an item that is not on the list is added already ticked; with `tick: false` the item is added (or merged into the open entry). Ticking needs any role that can see the list, adding or creating needs Owner or Editor. Returns `{ itemId, name, entryId, action, created, quantity, priceSaved, previousPrice, savedPrice, categoryId }` or `{ error: 'not_found' | 'forbidden' | 'invalid_name' }`. Since 1.8.0 `categoryId` (a category of the household) is given to an item the scan created or to an existing one that has none; a category an item has is never replaced by a scan.
+
+`ctx.core.reverseScan({ user, listId, itemId, entryId, action, created, restorePrice: { from, to } })` takes a scan back using what `scanItem` returned (`action`: `ticked` is un-ticked, `more` and `merged` lose one, `added` and `added_ticked` are removed; an item the scan created and nothing else uses is deleted again and `item.deleted` is emitted; `restorePrice` puts the old saved price back unless it was changed since). It only acts while the entry is still as the scan left it: otherwise `{ reversed: false, reason: 'changed' }`. Returns `{ reversed: true, result, itemRemoved }`.
 
 ### Capabilities defined by the core
 
@@ -80,6 +84,7 @@ Rules enforced when a module is installed: only `node:` built-ins and relative i
 | --- | --- | --- |
 | `receipt-reader` | `read({ file, mime, userId, engine }) → { engine, lines, total, … }` (never saves anything) | the receipt queue in `server/src/receipts.js` |
 | `item-catalog` | `search({ user, listId, householdId, q, limit }) → [{ name, note?, categoryId?, price?, priceMax?, currency?, perKg?, chains?, ref? }]` and optional `afterAdd({ user, listId, householdId, itemId, ref })` (called after an item picked from a suggestion is added; failures are ignored) | Add items in Manage list (`GET /api/lists/:id/catalog?q=`, Editors and Owners; `catalogRef` in `POST /api/lists/:id/entries`) |
+| `item-csv-columns` | `headers: ['barcode']`, `export({ householdId, itemIds }) → { [itemId]: { barcode } }`, `plan({ householdId, links: [{ line, itemId \| null, name, values }] }) → { [line]: { relinks, invalid } }` (preview, writes nothing), `apply({ user, householdId, links: [{ itemId, values }] })`: extra columns of the items CSV (since core 1.8.0); provided by `barcode-scan` (a barcode in the file always wins over an existing link) | `server/src/routes/itemsCsv.js` |
 | `barcode-lookup` | `find({ listId, storeId, code }) → { code, name, manufacturer, price, weighted, chain, chainNameEn, chainNameHe, branchId, branchName, via: 'store'\|'list'\|'any', … } \| null`: what a barcode is and costs in the branches the module reads; provided by `price-compare` (since 1.4.0) | `barcode-scan` |
 | `price-source` | `chains()` and `priceAt(chain, storeId, code)`; provided by `price-compare` (it reads the portals itself) | `price-compare` |
 
@@ -93,7 +98,7 @@ export default function register(host: Host) {
 }
 ```
 
-Slots: `shop.toolbar` (a small control next to the search box in Shop; props `{ data, me, reload, storeId }`, `storeId` being the store chosen in Shop or `""`) and `manage.toolbar` (in the row of the Add button in Manage list; same props), `list.tab` (props `{ data, me, reload }`; a tab of the list: the bar at the bottom edge on a phone, with a generic icon and the `title()` as its label, so keep it short), `manage.section` (same props; **since 1.7.2 each one is a page of the list's burger menu**, its `title()` being the menu entry, no longer a card inside Manage list), `settings.section` (`{ me, onChange }`), `admin.section` (`{ me }`). An `admin.section` is the module's **configuration panel**: Admin > Modules shows a **Configure** button on the module's card (only when the module registered one and is enabled) and opens the panel under the card. Put everything an admin configures in it (a module with several `admin.section` entries gets a heading for each). `visible({ me, data })` can hide an entry; `order` sorts. The host provides React, `api`, `moduleApi`, `t`, `errText`, `timeAgo`, `formatMoney`, `effectiveCurrency`. A module never bundles React: `scripts/build-modules.mjs` points `react` at the app's copy (`globalThis.__SL_HOST__`). Calls to `host.moduleApi('/x')` go to `/api/m/<id>/x`.
+Slots: `shop.toolbar` (a small control next to the search box in Shop; props `{ data, me, reload, storeId }`, `storeId` being the store chosen in Shop or `""`) and `manage.toolbar` (in the row of the Add button in Manage list; same props), `trip.toolbar` (since 1.8.0, in Add a trip next to Add item; props `{ data, me, addRows }`, `addRows([{ name, qty?, price?, itemId?, categoryId? }])` fills the form's empty rows first and adds more; nothing is saved until the person saves the trip), `list.tab` (props `{ data, me, reload }`; a tab of the list: the bar at the bottom edge on a phone, with a generic icon and the `title()` as its label, so keep it short), `manage.section` (same props; **since 1.7.2 each one is a page of the list's burger menu**, its `title()` being the menu entry, no longer a card inside Manage list), `settings.section` (`{ me, onChange }`), `admin.section` (`{ me }`). An `admin.section` is the module's **configuration panel**: Admin > Modules shows a **Configure** button on the module's card (only when the module registered one and is enabled) and opens the panel under the card. Put everything an admin configures in it (a module with several `admin.section` entries gets a heading for each). `visible({ me, data })` can hide an entry; `order` sorts. The host provides React, `api`, `moduleApi`, `t`, `errText`, `timeAgo`, `formatMoney`, `effectiveCurrency`. A module never bundles React: `scripts/build-modules.mjs` points `react` at the app's copy (`globalThis.__SL_HOST__`). Calls to `host.moduleApi('/x')` go to `/api/m/<id>/x`.
 
 ## Build, package, install
 

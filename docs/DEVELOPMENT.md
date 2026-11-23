@@ -41,7 +41,7 @@ e2e/                      real-browser test with real OCR
 
 ## Past items rule
 
-A list's past items are the rows of `list_items`. Every code path that puts an item on a list, imports it into a list, or records a purchase for it on a list must call `rememberForList()` (`server/src/entries.js`). Today that is `addToList`, the entry insert in `routes/lists.js`, the CSV import, the receipt review, the add-a-trip route (`POST /api/lists/:id/trips`) and `ctx.core.scanItem` (modules). When you add a writer, grep `INSERT INTO items`, `INSERT INTO purchase_events` and `INSERT INTO list_entries`, and cover it in `server/test/pastitems*.test.js`.
+A list's past items are the rows of `list_items`. Every code path that puts an item on a list, imports it into a list, or records a purchase for it on a list must call `rememberForList()` (`server/src/entries.js`). Today that is `addToList`, the entry insert in `routes/lists.js`, the CSV import, the receipt review, the add-a-trip route (`POST /api/lists/:id/trips`) and `ctx.core.scanItem` (modules). The Add a trip form can fill its rows from a photo through `POST /api/lists/:id/receipt-read` (reads through the `receipt-reader` capability and saves nothing); the trip itself is saved by the add-a-trip route as before. When you add a writer, grep `INSERT INTO items`, `INSERT INTO purchase_events` and `INSERT INTO list_entries`, and cover it in `server/test/pastitems*.test.js`.
 
 ## Duplicate prevention
 
@@ -49,7 +49,7 @@ Every item name is normalised (case, punctuation, accents, Hebrew niqqud and fin
 
 ## CSV notes
 
-Purchase history export: date and time (UTC), household, list, store, item, category, quantity, unit price, line total, currency, buyer, trip and receipt total (printed once per trip so sums do not double count); optional date range; purchases from private lists are only exported to people who can see those lists; UTF-8 with BOM so Excel shows Hebrew. Item list export/import: names are matched with the same fuzzy matcher, missing categories are created, a preview shows what will happen (including how many items become new past items of the list), every created or updated item becomes one of the list's past items whatever its quantity, and only rows with a quantity above 0 are also put on the list. Cells that start with `=`, `+`, `-` or `@` are protected against spreadsheet formula injection on export and unprotected on import.
+Purchase history export: date and time (UTC), household, list, store, item, category, quantity, unit price, line total, currency, buyer, trip and receipt total (printed once per trip so sums do not double count); optional date range; purchases from private lists are only exported to people who can see those lists; UTF-8 with BOM so Excel shows Hebrew. Item list export/import: names are matched with the same fuzzy matcher, missing categories are created, a preview shows what will happen (including how many items become new past items of the list), every created or updated item becomes one of the list's past items whatever its quantity, and only rows with a quantity above 0 are also put on the list. Since 1.8.0 a module that provides `item-csv-columns` adds columns (Barcode scanning: `barcode`, several codes in one cell separated by spaces); the preview lists barcodes that move from another item and the file always wins. Cells that start with `=`, `+`, `-` or `@` are protected against spreadsheet formula injection on export and unprotected on import.
 
 ## Releases
 

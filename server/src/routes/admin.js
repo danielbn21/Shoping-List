@@ -21,19 +21,48 @@ export default async function adminRoutes(app) {
       (SELECT COUNT(*) FROM purchase_events p WHERE p.buyer_id = u.id) AS purchases,
       (SELECT group_concat(h.name, ', ') FROM household_members m JOIN households h ON h.id = m.household_id WHERE m.user_id = u.id) AS households
       FROM users u ORDER BY u.id`).all(Date.now());
+    const memberships = db.prepare('SELECT m.user_id, m.role, h.id, h.name FROM household_members m JOIN households h ON h.id = m.household_id ORDER BY h.id').all();   // since 1.8.1
     return {
       users: rows.map((r) => ({
         id: r.id, username: r.username, email: r.email, name: r.name, role: r.role,
         disabled: !!r.disabled, mustChangePassword: !!r.must_change_password,
         createdAt: r.created_at, lastSeenAt: r.last_seen_at, devices: r.devices,
         itemsAdded: r.items_added, purchases: r.purchases, households: r.households || '',
+        householdList: memberships.filter((m) => m.user_id === r.id).map((m) => ({ id: m.id, name: m.name, role: m.role })),
       })),
     };
   });
 
-  app.get('/api/admin/households', pre, async () => ({
-    households: db.prepare('SELECT id, name FROM households ORDER BY id').all(),
-  }));
+  // Every household with its members and what is in it (1.8.1). The id and name fields are what the create-user form has always used.
+  app.get('/api/admin/households', pre, async () => {
+    const members = db.prepare(`SELECT m.household_id, m.role, u.id, u.name, u.username, u.disabled FROM household_members m
+      JOIN users u ON u.id = m.user_id ORDER BY m.role = 'owner' DESC, u.name COLLATE NOCASE`).all();
+    const one = (sql, hid) => db.prepare(sql).get(hid).c;
+    return {
+      households: db.prepare('SELECT id, name, created_at FROM households ORDER BY id').all().map((h) => ({
+        id: h.id, name: h.name, createdAt: h.created_at,
+        members: members.filter((m) => m.household_id === h.id).map((m) => ({ userId: m.id, name: m.name, username: m.username, role: m.role, disabled: !!m.disabled })),
+        counts: {
+          lists: one('SELECT COUNT(*) c FROM lists WHERE household_id = ?', h.id),
+          items: one('SELECT COUNT(*) c FROM items WHERE household_id = ? AND archived = 0', h.id),
+          trips: one('SELECT COUNT(*) c FROM trips WHERE household_id = ? AND finished_at IS NOT NULL', h.id),
+          receipts: one('SELECT COUNT(*) c FROM receipts WHERE household_id = ?', h.id),
+        },
+      })),
+    };
+  });
+
+  // Create a household for a chosen owner (1.8.1). The member, rename and delete routes in households.js already work for an admin on any household.
+  app.post('/api/admin/households', pre, async (req, reply) => {
+    const b = req.body || {};
+    const name = cleanName(b.name);
+    if (!name) return bad(reply, 'invalid_name');
+    const ownerId = b.ownerId ? Number(b.ownerId) : req.user.id;
+    if (!db.prepare('SELECT 1 FROM users WHERE id = ? AND disabled = 0').get(ownerId)) return bad(reply, 'user_not_found', 404);
+    const id = db.transaction(() => createHousehold(db, name, ownerId))();
+    audit(db, req.user.id, 'household.created', String(id), { owner: ownerId, by: 'admin' });
+    return { id };
+  });
 
   // Create a user. If no password is supplied, a one-time password is generated and returned once.
   app.post('/api/admin/users', pre, async (req, reply) => {

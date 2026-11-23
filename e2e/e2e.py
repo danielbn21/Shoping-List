@@ -314,6 +314,20 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Delete this trip").click()   # the script's dialog handler accepts the confirmation
     page.wait_for_timeout(800)
     check("1.5.0: a deleted trip is gone from the history", page.locator(".trip").count() == trips_before and page.locator(".hn:text-is('Halva')").count() == 0)
+    # 1.8.0: Add a trip: a photo is read into the rows (real OCR), Add item adds a row, and nothing is saved until Save trip
+    fb = "details:has(summary:has-text('Add a trip'))"
+    rows_before = page.locator(fb + " input[aria-label='Item']").count()
+    page.get_by_role("button", name="Add item").click()
+    check("1.8.0: Add item adds a row to the trip form by hand", page.locator(fb + " input[aria-label='Item']").count() == rows_before + 1)
+    check("1.8.0: the trip form offers Read receipt photo", page.get_by_text("Read receipt photo").count() == 1)
+    saved_before = page.locator(".trip").count()
+    page.locator(fb + " input[type=file]").set_input_files("/tmp/receipt_en.jpg")
+    page.wait_for_selector("text=items from the photo", timeout=90000)
+    filled = [v for v in page.locator(fb + " input[aria-label='Item']").evaluate_all("els => els.map(e => e.value)") if v.strip()]
+    check("1.8.0: reading a photo fills the item rows", len(filled) >= 2, str(filled))
+    check("1.8.0: the photo's total is filled in", page.locator(fb + " input[type=number][step='0.01']").first.input_value() not in ("", "0"))
+    check("1.8.0: nothing is saved by reading", page.locator(".trip").count() == saved_before)
+    page.screenshot(path="/tmp/shots/22-add-trip-read.png", full_page=True)
     page.locator("summary", has_text="Add a trip").click()   # close the form again
     page.locator(".trip-head").first.click()   # only one card is open at a time: reopen the first trip for the steps below
     page.wait_for_selector(".hline")
