@@ -1,7 +1,7 @@
 import { useSyncExternalStore, type ComponentType } from 'react';
 
 // Where a module can add something to the app. A module only ever adds to these named slots; it cannot replace core screens.
-export type SlotName = 'list.tab' | 'manage.section' | 'settings.section' | 'admin.section' | 'shop.toolbar' | 'manage.toolbar';
+export type SlotName = 'list.tab' | 'manage.section' | 'settings.section' | 'admin.section' | 'shop.toolbar' | 'manage.toolbar' | 'trip.toolbar';
 
 export type SlotDef = {
   id: string;                          // unique inside the module

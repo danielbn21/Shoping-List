@@ -10,6 +10,7 @@ export default async function itemsCsvRoutes(app) {
   const db = app.db;
   const pre = { preHandler: app.auth() };
   const { listAccess, canEdit } = makeAccess(db);
+  const extProvider = (userId) => app.modules.providerFor('item-csv-columns', userId);
 
   // ---- export the item bank (a backup, or a way to carry items to another list or household) ----
   app.get('/api/lists/:id/items.csv', pre, async (req, reply) => {
@@ -22,8 +23,13 @@ export default async function itemsCsvRoutes(app) {
     const rows = db.prepare(`SELECT i.id, i.name, i.default_note, i.price, c.name_en, c.name_he,
         (SELECT COUNT(*) FROM purchase_events p WHERE p.item_id = i.id) AS n, (SELECT MAX(purchased_at) FROM purchase_events p WHERE p.item_id = i.id) AS last
       FROM items i LEFT JOIN categories c ON c.id = i.category_id WHERE i.household_id = ? AND i.archived = 0 ORDER BY i.name`).all(hid);
-    const out = [['name', 'category', 'default_note', 'price', 'quantity', 'times_purchased', 'last_purchased']];
-    for (const r of rows) out.push([r.name, he ? r.name_he : r.name_en, r.default_note, r.price, onList.get(r.id) ?? 0, r.n, r.last ? new Date(r.last).toISOString().slice(0, 10) : null]);
+    // since 1.8.0: a module that provides 'item-csv-columns' (Barcode scanning: the barcode) adds columns of its own
+    const ext = extProvider(req.user.id);
+    let extra = {};
+    if (ext) { try { extra = ext.export({ householdId: hid, itemIds: rows.map((r) => r.id) }) ?? {}; } catch (e) { app.log.warn({ err: String(e) }, 'item-csv-columns export failed'); } }
+    const extHeads = ext?.headers ?? [];
+    const out = [['name', 'category', 'default_note', 'price', 'quantity', 'times_purchased', 'last_purchased', ...extHeads]];
+    for (const r of rows) out.push([r.name, he ? r.name_he : r.name_en, r.default_note, r.price, onList.get(r.id) ?? 0, r.n, r.last ? new Date(r.last).toISOString().slice(0, 10) : null, ...extHeads.map((h) => extra[r.id]?.[h] ?? null)]);
     return reply.header('Content-Type', 'text/csv; charset=utf-8')
       .header('Content-Disposition', `attachment; filename="items-${new Date().toISOString().slice(0, 10)}.csv"`).send(toCsv(out));
   });
@@ -41,6 +47,8 @@ export default async function itemsCsvRoutes(app) {
     const head = table[0].map((h) => h.trim().toLowerCase().replace(/[\s-]+/g, '_'));
     const col = (...names) => head.findIndex((h) => names.includes(h));
     const ci = { name: col('name', 'item', 'שם', 'פריט'), category: col('category', 'קטגוריה'), note: col('default_note', 'note', 'הערה'), price: col('price', 'מחיר'), qty: col('quantity', 'qty', 'כמות') };
+    const ext = extProvider(req.user.id);
+    const extCols = (ext?.headers ?? []).map((h) => [h, col(h)]).filter(([, i]) => i >= 0);
     if (ci.name < 0) return bad(reply, 'csv_no_name_column');
     const overwrite = !!b.overwrite, mergeSimilar = !!b.mergeSimilar, createCategories = b.createCategories !== false, apply = !!b.apply;
 
@@ -62,6 +70,7 @@ export default async function itemsCsvRoutes(app) {
       if (rawPrice) { const p = Number(rawPrice); if (Number.isFinite(p) && p >= 0 && p < 1e7) row.price = p; else row.warnings.push('bad_price'); }
       const rawQty = cell(r, ci.qty).replace(',', '.');
       if (rawQty) { const q = Number(rawQty); if (Number.isFinite(q) && q >= 0 && q < 10000) row.quantity = q; else row.warnings.push('bad_quantity'); }
+      row.extra = Object.fromEntries(extCols.map(([h, i]) => [h, cell(r, i)]).filter(([, v]) => v));
       row.norm = normalize(name);
       if (!row.norm) { row.warnings.push('no_name'); return; }
       if (planned.has(row.norm)) { row.action = 'duplicate_in_file'; row.dupOf = planned.get(row.norm); return; }
@@ -78,6 +87,13 @@ export default async function itemsCsvRoutes(app) {
       planned.set(row.norm, rows.length - 1);
     });
 
+    // what the extra columns would change, for the preview (nothing is written here)
+    let extraPlan = {};
+    const extraRows = ext ? rows.filter((r) => ['create', 'update'].includes(r.action) && Object.keys(r.extra ?? {}).length) : [];
+    if (extraRows.length) {
+      try { extraPlan = ext.plan({ householdId: hid, links: extraRows.map((r) => ({ line: r.line, itemId: r.item?.id ?? null, name: r.name, values: r.extra })) }) ?? {}; }
+      catch (e) { app.log.warn({ err: String(e) }, 'item-csv-columns plan failed'); }
+    }
     const count = (a) => rows.filter((r) => r.action === a).length;
     const linked = new Set(db.prepare('SELECT item_id FROM list_items WHERE list_id = ?').all(acc.list.id).map((r) => r.item_id));
     const summary = {
@@ -86,8 +102,11 @@ export default async function itemsCsvRoutes(app) {
       addToList: rows.filter((r) => ['create', 'update'].includes(r.action) && r.quantity > 0).length,
       pastItems: rows.filter((r) => r.action === 'create' || (r.action === 'update' && !linked.has(r.item.id))).length, // items that become new past items of this list
       newCategories: [...new Set(rows.filter((r) => r.newCategory).map((r) => r.category.trim()))].length,
+      extraColumns: extraRows.length,                                                       // rows that carry values for a module's column (barcodes)
+      extraRelinks: Object.values(extraPlan).reduce((n, p) => n + (p?.relinks?.length ?? 0), 0), // barcodes that move from another item to the one in the file (the file wins)
     };
 
+    const applied = [];
     if (apply) {
       db.transaction(() => {
         const newCats = new Map();
@@ -120,16 +139,18 @@ export default async function itemsCsvRoutes(app) {
             if (sets.length) db.prepare(`UPDATE items SET ${sets.join(', ')} WHERE id = ?`).run(...vals, item.id);
             item = db.prepare('SELECT * FROM items WHERE id = ?').get(item.id);
           }
+          if (Object.keys(row.extra ?? {}).length) applied.push({ itemId: item.id, values: row.extra });
           rememberForList(db, acc.list.id, item.id); // every imported item becomes one of this list's past items, whatever its quantity
           if (row.quantity > 0) addToList(db, { listId: acc.list.id, item, quantity: row.quantity, userId: req.user.id });
         }
         audit(db, req.user.id, 'items.imported', String(acc.list.id), summary);
       })();
+      if (ext && applied.length) { try { ext.apply({ user: req.user, householdId: hid, links: applied }); } catch (e) { app.log.warn({ err: String(e) }, 'item-csv-columns apply failed'); } }
     }
 
     return {
       applied: apply, summary,
-      rows: rows.slice(0, 300).map((r) => ({ line: r.line, name: r.name, action: r.action, matchedName: r.matchedName, similarTo: r.similarTo ?? null, category: r.category, newCategory: r.newCategory, price: r.price, quantity: r.quantity, warnings: r.warnings })),
+      rows: rows.slice(0, 300).map((r) => ({ line: r.line, name: r.name, action: r.action, matchedName: r.matchedName, similarTo: r.similarTo ?? null, category: r.category, newCategory: r.newCategory, price: r.price, quantity: r.quantity, warnings: r.warnings, relinks: extraPlan[r.line]?.relinks ?? [] })),
     };
   });
 }

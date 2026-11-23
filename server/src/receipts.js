@@ -7,6 +7,7 @@ export function createReceiptQueue(app) {
   const db = app.db;
   const queue = [];
   let busy = false;
+  let lock = Promise.resolve();   // reads that save nothing (1.8.0) take turns, one photo at a time like the queue
 
   async function process(job) {
     const r = db.prepare('SELECT * FROM receipts WHERE id = ?').get(job.receiptId);
@@ -33,6 +34,8 @@ export function createReceiptQueue(app) {
   }
 
   return {
+    // Reads a photo without saving anything (the Add a trip form fills its rows from it). reader is the module's 'receipt-reader'.
+    readNow(reader, args) { const p = lock.then(() => reader.read(args)); lock = p.then(() => {}, () => {}); return p; },
     enqueue(receiptId, userId, engine) {
       db.prepare("UPDATE receipts SET ocr_status = 'pending', ocr_error = NULL WHERE id = ?").run(receiptId);
       queue.push({ receiptId, userId, engine });

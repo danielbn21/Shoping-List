@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { api } from './api';
+import { api, apiUpload } from './api';
 import { t, errText, getLang, dateLocale } from './i18n';
 import { effectiveCurrency, formatMoney } from './money';
-import { uploadReceiptPhoto } from './imaging';
+import { uploadReceiptPhoto, compressImage } from './imaging';
+import { useSlots } from './slots';
+import type { TripRowInput } from './host';
 import { fmt } from './util';
 import type { Detail, Me, TripDetailData, TripLine, TripSummary } from './types';
 
@@ -50,7 +52,7 @@ export default function HistoryTab({ data, me, reload }: { data: Detail; me: Me;
         </div>
       </details>
 
-      {list.role !== 'viewer' && <AddTrip data={data} onAdded={async () => { await first(); await reload(); }} />}
+      {list.role !== 'viewer' && <AddTrip data={data} me={me} onAdded={async () => { await first(); await reload(); }} />}
 
       {trips.length === 0 && <p className="muted">{t('historyEmpty')}</p>}
       {trips.map((tr) => {
@@ -359,12 +361,12 @@ function ReceiptReview({ receiptId, currency, onClose, onApplied }: { receiptId:
   );
 }
 
-type TripRow = { key: number; name: string; qty: string; price: string };
+type TripRow = { key: number; name: string; qty: string; price: string; itemId?: number | null; categoryId?: number | null };   // itemId and categoryId come from a scan; editing the name drops them
 let rowKey = 0;
 const blankRow = (): TripRow => ({ key: ++rowKey, name: '', qty: '1', price: '' });
 
 // Record a shop that did not go through the Shop tab: date, store, total, the items and (optionally) a receipt photo.
-function AddTrip({ data, onAdded }: { data: Detail; onAdded: () => Promise<void> }) {
+function AddTrip({ data, me, onAdded }: { data: Detail; me: Me; onAdded: () => Promise<void> }) {
   const { list } = data;
   const [dateStr, setDateStr] = useState(() => localInput(Date.now()));
   const [storeStr, setStoreStr] = useState('');
@@ -372,15 +374,41 @@ function AddTrip({ data, onAdded }: { data: Detail; onAdded: () => Promise<void>
   const [rows, setRows] = useState<TripRow[]>(() => [blankRow(), blankRow(), blankRow()]);
   const [photo, setPhoto] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
-  const setRow = (key: number, patch: Partial<TripRow>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const setRow = (key: number, patch: Partial<TripRow>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...(patch.name !== undefined ? { itemId: null, categoryId: null } : {}), ...patch } : r)));
+  const tools = useSlots('trip.toolbar', { me, data });   // controls added by modules (Barcode scanning: Scan)
+  const canRead = me.capabilities.includes('receipt-reader');
+
+  // Rows from a scan or a photo go into the empty rows first, then are added after the last one.
+  const addRows = (input: TripRowInput[]) => setRows((rs) => {
+    const out = [...rs];
+    for (const x of input) {
+      const row: TripRow = { key: ++rowKey, name: x.name, qty: String(x.qty ?? 1), price: x.price === null || x.price === undefined ? '' : String(x.price), itemId: x.itemId ?? null, categoryId: x.categoryId ?? null };
+      const free = out.findIndex((r) => !r.name.trim() && !r.price.trim());
+      if (free >= 0) out[free] = { ...row, key: out[free].key }; else if (out.length < 200) out.push(row);
+    }
+    return out;
+  });
+
+  // Reads the photo into rows without saving anything; the photo is attached when the trip is saved.
+  const readPhoto = async (f: File | null) => {
+    if (!f) return;
+    setPhoto(f); setReading(true); setError(''); setMsg('');
+    try {
+      const r = await apiUpload<{ total: number | null; rows: { name: string; quantity: number; price: number | null }[] }>(`/lists/${list.id}/receipt-read`, await compressImage(f));
+      if (r.rows.length) addRows(r.rows.map((x) => ({ name: x.name, qty: x.quantity, price: x.price })));
+      if (r.total !== null && !totalStr.trim()) setTotalStr(String(r.total));
+      setMsg(r.rows.length ? t('tripReadDone', { n: r.rows.length }) : t('tripReadNone'));
+    } catch (err) { setError(errText(err)); } finally { setReading(false); }
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true); setError(''); setMsg('');
     try {
-      const lines = rows.filter((r) => r.name.trim()).map((r) => ({ name: r.name, quantity: num(r.qty) ?? 1, unitPrice: num(r.price) }));
+      const lines = rows.filter((r) => r.name.trim()).map((r) => ({ name: r.name, quantity: num(r.qty) ?? 1, unitPrice: num(r.price), itemId: r.itemId ?? undefined, categoryId: r.categoryId ?? undefined }));
       const r = await api<{ tripId: number }>(`/lists/${list.id}/trips`, { method: 'POST', body: { at: new Date(dateStr).getTime(), storeId: storeStr ? Number(storeStr) : null, total: num(totalStr), lines } });
       let note = t('tripAdded');
       if (photo) { try { await uploadReceiptPhoto(r.tripId, photo); } catch { note = t('tripPhotoFailed'); } }
@@ -411,10 +439,15 @@ function AddTrip({ data, onAdded }: { data: Detail; onAdded: () => Promise<void>
             <button type="button" className="iconbtn" aria-label={t('tripRemoveRow')} title={t('tripRemoveRow')} disabled={rows.length === 1} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}>✕</button>
           </div>
         ))}
-        <div className="row">
-          <button type="button" className="btn small" onClick={() => setRows((rs) => [...rs, blankRow()])} disabled={rows.length >= 200}>{t('tripAddRow')}</button>
-          <label className="btn small filebtn">{photo ? photo.name.slice(0, 24) : t('addReceiptPhoto')}<input type="file" accept="image/*" hidden onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); e.target.value = ''; }} /></label>
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <button type="button" className="btn small" onClick={() => setRows((rs) => [...rs, blankRow()])} disabled={rows.length >= 200}>＋ {t('tripAddRow')}</button>
+          {tools.map((m) => <m.component key={`${m.moduleId}:${m.id}`} data={data} me={me} addRows={addRows} />)}
+          {canRead
+            ? <label className="btn small filebtn" aria-disabled={reading}>{reading ? t('tripReading') : t('tripReadPhoto')}<input type="file" accept="image/*" hidden disabled={reading} onChange={(e) => { readPhoto(e.target.files?.[0] ?? null); e.target.value = ''; }} /></label>
+            : <label className="btn small filebtn">{photo ? photo.name.slice(0, 24) : t('addReceiptPhoto')}<input type="file" accept="image/*" hidden onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); e.target.value = ''; }} /></label>}
         </div>
+        {photo && canRead && <p className="muted">{t('tripPhotoAttached', { name: photo.name.slice(0, 40) })}</p>}
+        <p className="muted">{t('tripFillHint')}</p>
         <div><button className="btn primary" type="submit" disabled={busy}>{t('tripSave')}</button></div>
       </form>
     </details>

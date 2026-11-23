@@ -77,8 +77,9 @@ export default async function householdRoutes(app) {
     const u = username && db.prepare('SELECT id FROM users WHERE username = ? AND disabled = 0').get(username);
     if (!u) return bad(reply, 'user_not_found', 404);
     if (householdRole(u.id, hid)) return bad(reply, 'already_member', 409);
-    db.prepare("INSERT INTO household_members(household_id, user_id, role) VALUES (?,?,'member')").run(hid, u.id);
-    audit(db, req.user.id, 'household.member_added', String(hid), { user: u.id });
+    const role = (req.body || {}).role === 'owner' ? 'owner' : 'member';   // since 1.8.1 the role can be given when adding
+    db.prepare('INSERT INTO household_members(household_id, user_id, role) VALUES (?,?,?)').run(hid, u.id, role);
+    audit(db, req.user.id, 'household.member_added', String(hid), { user: u.id, role });
     return { ok: true };
   });
 

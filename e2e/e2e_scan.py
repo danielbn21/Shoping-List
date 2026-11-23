@@ -136,7 +136,7 @@ with sync_playwright() as p:
     check("1.7.0: the item was added, and the text typed in the Add field was not", "Tehina jar" in e and "Bread" not in e, str(list(e)))
 
     # ---- 1.7.0: rename what was just scanned; the barcode stays attached
-    page.get_by_role("button", name="Edit name").click()
+    page.get_by_role("button", name="Edit this item").click()
     page.get_by_label("Item name").fill("Tehina (family jar)")
     page.get_by_role("button", name="Save", exact=True).click()
     page.wait_for_selector("text=is now")
@@ -148,13 +148,61 @@ with sync_playwright() as p:
     e = entries(ctx, lid)
     check("1.7.0: scanning the same barcode again finds the renamed item, not a new one", len([n for n in e if n.startswith("Tehina")]) == 1, str(list(e)))
     # a name another item has is refused with a message, the dialog stays
-    page.get_by_role("button", name="Edit name").click()
+    page.get_by_role("button", name="Edit this item").click()
     page.get_by_label("Item name").fill("Grandma jam")
     page.get_by_role("button", name="Save", exact=True).click()
     page.wait_for_selector("text=already exists")
     check("1.7.0: a name that another item already has is refused", "Tehina (family jar)" in entries(ctx, lid))
     page.screenshot(path="/tmp/shots/20-scan-rename.png")
-    page.get_by_role("button", name="Cancel").click()
+    page.get_by_role("button", name="Cancel", exact=True).click()
+
+    # ---- 1.8.0: the category shown on the scan result, changed in the edit panel
+    check("1.8.0: the scan result shows an edit icon and a category line", page.locator("[data-testid=scan-last]").count() == 1 and "category" in page.locator("[data-testid=scan-last]").inner_text().lower())
+    page.get_by_role("button", name="Edit this item").click()
+    page.locator("[data-testid=scan-edit]").get_by_label("Category").select_option(label="Pantry")
+    page.get_by_role("button", name="Save", exact=True).click()
+    page.locator("[data-testid=scan-last]:has-text('Pantry')").wait_for()
+    check("1.8.0: the category is saved from the panel", ctx.request.get(f"{BASE}/api/lists/{lid}").json()["entries"] is not None and "Pantry" in page.locator("[data-testid=scan-last]").inner_text())
+
+    # ---- 1.8.0: Wrong item: the barcode moves to Bread, the extra Tehina is taken back, Bread gets the scan
+    before = entries(ctx, lid)
+    page.get_by_role("button", name="Edit this item").click()
+    page.get_by_role("button", name="Wrong item").click()
+    page.locator("[data-testid=scan-wrong]").get_by_label("Search your items").fill("Bread")
+    page.get_by_role("radio", name="Bread").check()
+    check("1.8.0: the panel says what will be undone", "will" in page.locator("[data-testid=scan-wrong]").inner_text())
+    page.screenshot(path="/tmp/shots/21-scan-wrong.png")
+    page.get_by_role("button", name="Move barcode").click()
+    page.wait_for_selector("text=Barcode moved")
+    after = entries(ctx, lid)
+    check("1.8.0: Wrong item takes the scan back from the wrong item", after["Tehina (family jar)"]["quantity"] == before["Tehina (family jar)"]["quantity"] - 1, str(after["Tehina (family jar)"]))
+    check("1.8.0: Wrong item gives it to the right item", after["Bread"]["quantity"] == (before["Bread"]["quantity"] + 1 if "Bread" in before else 1), str(after["Bread"]))
+    page.get_by_label("Or type the barcode number").fill(UNK)
+    page.get_by_role("button", name="Look up").click()
+    page.wait_for_selector("text=Bread: now", timeout=10000)
+    check("1.8.0: the next scan of that barcode lands on Bread", True)
+    page.get_by_role("button", name="Done").click()
+
+    # ---- 1.8.0: Scan in Add a trip fills a row with the product's name and price and touches no list
+    n_before = len(entries(ctx, lid))
+    page.get_by_text("History", exact=True).first.click()
+    page.locator("summary", has_text="Add a trip").click()
+    fb = "details:has(summary:has-text('Add a trip'))"
+    page.locator(fb).get_by_role("button", name="Scan").click()
+    page.wait_for_selector("[role=dialog]")
+    page.get_by_label("Or type the barcode number").fill(A)
+    page.get_by_role("button", name="Look up").click()
+    try:
+        page.wait_for_selector("text=Added to the trip", timeout=20000)
+    except Exception:
+        print("DIALOG:", page.locator("[role=dialog]").inner_text()[:400]); page.screenshot(path="/tmp/shots/23-trip-fail.png"); raise
+    page.get_by_role("button", name="Done").click()
+    vals = page.locator(fb + " input[aria-label='Item']").evaluate_all("els => els.map(e => e.value)")
+    prices = page.locator(fb + " input[aria-label='Price']").evaluate_all("els => els.map(e => e.value)")
+    check("1.8.0: Scan in Add a trip fills a row with the product name", any(v.strip() for v in vals), str(vals))
+    check("1.8.0: and its price", any(v.strip() for v in prices), str(prices))
+    check("1.8.0: the list itself was not touched", len(entries(ctx, lid)) == n_before)
+    page.screenshot(path="/tmp/shots/23-add-trip-scan.png", full_page=True)
     br.close()
 
 print("FAILED: " + (", ".join(errors) if errors else "none"))

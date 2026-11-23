@@ -140,7 +140,12 @@ export default async function historyRoutes(app) {
       let unit = money(l.unitPrice), line = money(l.lineTotal);
       if (Number.isNaN(unit) || Number.isNaN(line)) return bad(reply, 'invalid_price');
       if (line !== null) unit = round2(line / qty); else if (unit !== null) line = round2(unit * qty);
-      lines.push({ name, qty, unit, line, itemId: l.itemId ? Number(l.itemId) : null });
+      let categoryId = null;   // since 1.8.0: a category for an item this line creates (a scanned product, for example); an existing item keeps its own
+      if (l.categoryId) {
+        categoryId = Number(l.categoryId);
+        if (!db.prepare('SELECT 1 FROM categories WHERE id = ? AND household_id = ?').get(categoryId, hid)) return bad(reply, 'invalid_category');
+      }
+      lines.push({ name, qty, unit, line, itemId: l.itemId ? Number(l.itemId) : null, categoryId });
     }
     if (!lines.length && total === null) return bad(reply, 'empty_trip');
     const tripId = db.transaction(() => {
@@ -153,8 +158,8 @@ export default async function historyRoutes(app) {
           if (!norm) continue;
           item = db.prepare('SELECT * FROM items WHERE household_id = ? AND name_norm = ?').get(hid, norm);
           if (!item) {
-            const iid = Number(db.prepare('INSERT INTO items(household_id, name, name_norm, language, created_at) VALUES (?,?,?,?,?)')
-              .run(hid, l.name, norm, isHebrew(l.name) ? 'he' : 'en', Date.now()).lastInsertRowid);
+            const iid = Number(db.prepare('INSERT INTO items(household_id, name, name_norm, language, category_id, created_at) VALUES (?,?,?,?,?,?)')
+              .run(hid, l.name, norm, isHebrew(l.name) ? 'he' : 'en', l.categoryId, Date.now()).lastInsertRowid);
             item = db.prepare('SELECT * FROM items WHERE id = ?').get(iid);
           }
         }
@@ -243,6 +248,40 @@ export default async function historyRoutes(app) {
       audit(db, req.user.id, 'trip.restored', String(ta.trip.id), { to: target.list.id, count: lines.length });
     })();
     return { added, merged, listId: target.list.id };
+  });
+
+
+  // since 1.8.0: read a receipt photo into rows for the Add a trip form, without saving the photo, a trip or anything else.
+  // -> { engine, total, rows: [{ name, quantity, price }] }; the person edits the rows and saves the trip as usual.
+  app.post('/api/lists/:id/receipt-read', { ...pre, bodyLimit: 12 * 1024 * 1024, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const acc = listAccess(req.user, Number(req.params.id));
+    if (!acc) return bad(reply, 'not_found', 404);
+    if (!canEdit(acc)) return bad(reply, 'forbidden', 403);
+    const buf = req.body;
+    const kind = Buffer.isBuffer(buf) ? sniff(buf) : null;
+    if (!kind) return bad(reply, 'invalid_image');
+    const reader = app.modules.providerFor('receipt-reader', req.user.id);
+    if (!reader) return bad(reply, 'no_reader');
+    const dir = path.join(app.dataDir, 'tmp');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${crypto.randomUUID()}.${kind.ext}`);
+    fs.writeFileSync(file, buf);
+    let res;
+    try { res = await app.receipts.readNow(reader, { file, mime: kind.mime, userId: req.user.id }); }
+    catch (e) { return bad(reply, 'ocr_failed', 502); }
+    finally { fs.rmSync(file, { force: true }); }
+    const bank = db.prepare('SELECT id, name, name_norm FROM items WHERE household_id = ? AND archived = 0').all(acc.list.household_id);
+    const rows = (res.lines || []).slice(0, 200).map((l) => {
+      let name = String(l.name ?? '').slice(0, 100);
+      for (const v of isHebrew(name) ? [name, reverseHebrewRuns(name)] : [name]) {   // receipts often come out in visual order; a name the household already has settles which way round it is
+        const b = findReceiptMatch(v, bank);
+        if (b) { name = b.name; break; }
+      }
+      const q = Number(l.quantity) > 0 ? Number(l.quantity) : 1;
+      const unit = Number.isFinite(Number(l.unitPrice)) && l.unitPrice !== null ? Number(l.unitPrice) : (Number.isFinite(Number(l.lineTotal)) && l.lineTotal !== null ? round2(Number(l.lineTotal) / q) : null);
+      return { name, quantity: q, price: unit };
+    });
+    return { engine: res.engine ?? null, total: res.total ?? null, rows };
   });
 
   // ---------- receipt photos ----------

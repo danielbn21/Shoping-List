@@ -49,6 +49,9 @@ export type ListTabProps = { data: import('./types').Detail; me: Me; reload: () 
 export type ManageSectionProps = ListTabProps;
 // shop.toolbar (next to the search box in Shop) and manage.toolbar (in the row of the Add button in Manage list): small controls. storeId is the store chosen in Shop ("" = none).
 export type ToolbarProps = ListTabProps & { storeId: string };
+// trip.toolbar (since 1.8.0; in Add a trip, next to Add item): a control that fills rows of the form. addRows puts them in the empty rows first, then adds more; nothing is saved until the person saves the trip.
+export type TripRowInput = { name: string; qty?: number; price?: number | null; itemId?: number | null; categoryId?: number | null };
+export type TripToolbarProps = { data: import('./types').Detail; me: Me; addRows: (rows: TripRowInput[]) => void };
 export type SettingsSectionProps = { me: Me; onChange: () => void };
 export type AdminSectionProps = { me: Me };
 export { addStrings };
