@@ -47,6 +47,8 @@ function Scanner({ listId, canEdit, reload, storeId, mode, onPick, onClose }: { 
   const [found, setFound] = useState<{ id: number; name: string }[]>([]);
   const [pick, setPick] = useState<number | 'new' | null>(null);
   const busyRef = useRef(false), pendingRef = useRef<Pending | null>(null), editingRef = useRef(false), recent = useRef(new Map<string, number>()), lineId = useRef(0);
+  const repeatMs = useRef(4000);   // how long the same barcode is ignored: the admin's setting (1.3.0)
+  useEffect(() => { api<{ repeatSeconds: number }>('/config').then((r) => { repeatMs.current = r.repeatSeconds * 1000; }).catch(() => { /* the default stays */ }); }, []);
   const latest = useRef({ listId, storeId, mode, reload });
   latest.current = { listId, storeId, mode, reload };
   pendingRef.current = pending;
@@ -89,7 +91,7 @@ function Scanner({ listId, canEdit, reload, storeId, mode, onPick, onClose }: { 
 
   const onCode = (code: string) => {
     const now = Date.now(), last = recent.current.get(code) ?? 0;
-    if (now - last < 4000) return;           // the same barcode in the next frames is the same scan
+    if (now - last < repeatMs.current) return;           // the same barcode in the next frames is the same scan
     recent.current.set(code, now);
     send({ code });
   };

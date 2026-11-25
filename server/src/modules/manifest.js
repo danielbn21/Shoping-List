@@ -36,9 +36,23 @@ export function checkManifest(m, { coreVersion } = {}) {
   }
   if (m.requires !== undefined && (typeof m.requires !== 'object' || (m.requires.core !== undefined && typeof m.requires.core !== 'string'))) return fail('manifest_invalid', 'requires');
   if (coreVersion && !satisfies(coreVersion, m.requires?.core ?? '*')) return fail('core_incompatible', `needs core ${m.requires.core}, this is ${coreVersion}`);
+  // since 1.9.0: `config` declares the module's admin settings that count as configuration (saved in checkpoints and files, restored, range-checked):
+  //   { "key": { "type": "int", "min": 1, "max": 90, "default": 7 } | { "type": "bool", "default": true } | { "type": "enum", "values": ["a","b"], "default": "a" } }
+  const config = {};
+  if (m.config !== undefined) {
+    if (!m.config || typeof m.config !== 'object' || Array.isArray(m.config)) return fail('manifest_invalid', 'config');
+    for (const [k, d] of Object.entries(m.config)) {
+      if (!/^[a-z][a-z0-9_]{0,39}$/.test(k) || !d || typeof d !== 'object') return fail('manifest_invalid', `config ${k}`);
+      if (d.type === 'int' && Number.isInteger(d.min) && Number.isInteger(d.max) && Number.isInteger(d.default) && d.min <= d.default && d.default <= d.max) config[k] = { type: 'int', min: d.min, max: d.max, default: d.default };
+      else if (d.type === 'bool' && typeof d.default === 'boolean') config[k] = { type: 'bool', default: d.default };
+      else if (d.type === 'enum' && Array.isArray(d.values) && d.values.length && d.values.every((v) => typeof v === 'string') && d.values.includes(d.default)) config[k] = { type: 'enum', values: d.values, default: d.default };
+      else return fail('manifest_invalid', `config ${k}`);
+    }
+  }
   return {
     ok: true,
     manifest: {
+      config,
       id: m.id, name: m.name.trim(), version: m.version, kind, description: typeof m.description === 'string' ? m.description.slice(0, 300) : '',
       author: typeof m.author === 'string' ? m.author.slice(0, 80) : '',
       requires: { core: m.requires?.core ?? '*' }, dependsOn: list('dependsOn'), optionalDepends: list('optionalDepends'),

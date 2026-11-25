@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { Fragment, useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
-import { t, errText, timeAgo } from './i18n';
+import { t, tx, errText, timeAgo } from './i18n';
+import { CURRENCIES, currencyName } from './money';
 import ModulesAdmin from './ModulesAdmin';
 import type { Me } from './types';
 
@@ -12,7 +13,7 @@ type AdminUser = {
 };
 type HMember = { userId: number; name: string; username: string; role: 'owner' | 'member'; disabled: boolean };
 type AdminHousehold = { id: number; name: string; createdAt: number; members: HMember[]; counts: { lists: number; items: number; trips: number; receipts: number } };
-type Tab = 'users' | 'households' | 'modules' | 'settings' | 'audit';
+type Tab = 'users' | 'households' | 'modules' | 'settings' | 'configuration' | 'audit';
 
 export default function Admin({ me }: { me: Me }) {
   const [tab, setTab] = useState<Tab>('users');
@@ -20,14 +21,15 @@ export default function Admin({ me }: { me: Me }) {
     <div className="stack">
       <h1>{t('navAdmin')}</h1>
       <div className="tabs" role="group">
-        {(['users', 'households', 'modules', 'settings', 'audit'] as Tab[]).map((k) => (
+        {(['users', 'households', 'modules', 'settings', 'configuration', 'audit'] as Tab[]).map((k) => (
           <button key={k} aria-pressed={tab === k} onClick={() => setTab(k)}>
-            {k === 'users' ? t('adminUsers') : k === 'households' ? t('adminHouseholds') : k === 'modules' ? t('adminModules') : k === 'settings' ? t('adminSettings') : t('adminAudit')}
+            {k === 'users' ? t('adminUsers') : k === 'households' ? t('adminHouseholds') : k === 'configuration' ? t('adminConfigTab') : k === 'modules' ? t('adminModules') : k === 'settings' ? t('adminSettings') : t('adminAudit')}
           </button>
         ))}
       </div>
       {tab === 'users' && <Users me={me} />}
       {tab === 'households' && <Households me={me} />}
+      {tab === 'configuration' && <Configuration />}
       {tab === 'modules' && <ModulesAdmin me={me} />}
       {tab === 'settings' && <ServerSettings />}
       {tab === 'audit' && <Audit />}
@@ -188,17 +190,28 @@ type SettingsData = {
   registration_mode: 'open' | 'invite-only' | 'admin-only';
   session_days: number; min_password_length: number; app_url: string; allow_user_households: boolean; estimates_default: boolean;
   smtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string };
+  default_language: string; default_currency: string;
+  max_image_mb: number; max_module_mb: number; max_csv_mb: number; max_trip_lines: number;
+  rl_login_per_min: number; rl_register_per_min: number; rl_forgot_per_min: number; rl_reset_per_min: number;
+  invite_default_days: number; invite_max_days: number; invite_max_uses: number;
 };
+type FieldMeta = { type: string; min?: number; max?: number; values?: string[]; group?: string };
+type ServerInfo = { version: string; node: string; port: string; dataDir: string; modulesDir: string; ocrLangs: string };
+type NumKey = 'max_image_mb' | 'max_module_mb' | 'max_csv_mb' | 'max_trip_lines' | 'rl_login_per_min' | 'rl_register_per_min' | 'rl_forgot_per_min' | 'rl_reset_per_min' | 'invite_default_days' | 'invite_max_days' | 'invite_max_uses';
 
 function ServerSettings() {
   const [s, setS] = useState<SettingsData | null>(null);
+  const [fields, setFields] = useState<Record<string, FieldMeta>>({});
+  const [languages, setLanguages] = useState<string[]>(['en']);
+  const [server, setServer] = useState<ServerInfo | null>(null);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
   const [testTo, setTestTo] = useState('');
   const [testMsg, setTestMsg] = useState('');
 
   useEffect(() => {
-    api<{ settings: SettingsData }>('/admin/settings').then((r) => setS(r.settings)).catch((e) => setError(errText(e)));
+    api<{ settings: SettingsData; fields: Record<string, FieldMeta>; languages: string[]; server: ServerInfo }>('/admin/settings')
+      .then((r) => { setS(r.settings); setFields(r.fields); setLanguages(r.languages); setServer(r.server); }).catch((e) => setError(errText(e)));
   }, []);
   if (!s) return error ? <p className="error">{error}</p> : <p className="muted">{t('loading')}</p>;
 
@@ -253,6 +266,36 @@ function ServerSettings() {
         <label className="field"><span>{t('smtpFrom')}</span>
           <input type="text" dir="ltr" placeholder="Shopping list <list@example.com>" value={s.smtp.from} onChange={(e) => smtp('from', e.target.value)} /></label>
       </section>
+
+      {([['setGroupLimits', 'limits'], ['setGroupAbuse', 'abuse']] as const).map(([title, group]) => (
+        <section className="card stack" key={group}>
+          <h2>{t(title)}</h2>
+          {(Object.keys(fields) as NumKey[]).filter((k) => fields[k].group === group).map((k) => (
+            <label className="field" key={k}><span>{tx(`set_${k}`)}</span>
+              <input type="number" inputMode="numeric" min={fields[k].min} max={fields[k].max} value={s[k]} onChange={(e) => setS({ ...s, [k]: Number(e.target.value) })} />
+              <span className="muted" style={{ fontWeight: 400 }}>{t('setRange', { min: fields[k].min ?? 0, max: fields[k].max ?? 0 })}</span></label>
+          ))}
+        </section>
+      ))}
+
+      <section className="card stack">
+        <h2>{t('setGroupDefaults')}</h2>
+        <label className="field"><span>{t('set_default_language')}</span>
+          <select value={s.default_language} onChange={(e) => setS({ ...s, default_language: e.target.value })}>{languages.map((c) => <option key={c} value={c}>{c === 'en' ? 'English' : (() => { try { return new Intl.DisplayNames([c], { type: 'language' }).of(c) ?? c; } catch { return c; } })()}</option>)}</select></label>
+        <label className="field"><span>{t('set_default_currency')}</span>
+          <select value={s.default_currency} onChange={(e) => setS({ ...s, default_currency: e.target.value })}><option value="auto">{t('setCurrencyAuto')}</option>{CURRENCIES.map((c) => <option key={c} value={c}>{c} · {currencyName(c)}</option>)}</select></label>
+      </section>
+
+      {server && (
+        <section className="card stack">
+          <div><h2>{t('setGroupServer')}</h2><p className="muted">{t('setServerNote')}</p></div>
+          <dl className="kv" style={{ margin: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px' }} data-testid="server-info">
+            {([['setServerVersion', server.version], ['setServerNode', server.node], ['setServerPort', server.port], ['setServerData', server.dataDir], ['setServerModules', server.modulesDir], ['setServerOcr', server.ocrLangs]] as const).map(([k, v]) => (
+              <Fragment key={k}><dt className="muted">{t(k)}</dt><dd style={{ margin: 0, overflowWrap: 'anywhere' }} dir="ltr">{v}</dd></Fragment>
+            ))}
+          </dl>
+        </section>
+      )}
 
       <div className="row">
         <button className="btn primary" type="submit">{t('save')}</button>
@@ -405,6 +448,118 @@ function Households({ me }: { me: Me }) {
           <h3><bdi>{x.name}</bdi></h3>
           <p className="muted">{t('hhSummary', { members: x.members.length, lists: x.counts.lists, when: when(x.createdAt) })} · {t('hhOwners', { names: owners(x) })}</p>
         </button>
+      ))}
+    </div>
+  );
+}
+
+type Checkpoint = { id: number; createdAt: number; kind: 'auto' | 'named' | 'restore'; name: string | null; keys: string[]; by: string | null };
+type CfgPlan = { changes: { key: string; from: unknown; to: unknown }[]; skipped: { key: string; reason: string }[]; warnings: { code: string; detail: string }[]; restorePointId?: number | null; failed?: { key: string }[] };
+type CfgSource = { checkpointId: number } | { data: unknown };
+
+// A setting's name as the screens show it (keys of modules: "module <id>: <key>").
+const cfgLabel = (key: string) => {
+  if (key.startsWith('module:')) { const [, id, k] = key.split(':'); return k === 'enabled' ? t('cfgModuleEnabled', { id }) : `${id}: ${k}`; }
+  const s = tx(`set_${key}`);
+  return s === `set_${key}` ? key : s;
+};
+const cfgValue = (v: unknown) => (typeof v === 'boolean' ? (v ? t('on') : t('off')) : Array.isArray(v) ? `${v.length} …` : v === '' || v === null || v === undefined ? '—' : String(v));
+
+function Configuration() {
+  const [list, setList] = useState<Checkpoint[]>([]);
+  const [error, setError] = useState('');
+  const [msg, setMsg] = useState('');
+  const [naming, setNaming] = useState<string | null>(null);
+  const [view, setView] = useState<{ title: string; source: CfgSource; plan: CfgPlan } | null>(null);
+
+  const load = useCallback(async () => {
+    try { setList((await api<{ checkpoints: Checkpoint[] }>('/admin/config/checkpoints')).checkpoints); } catch (e) { setError(errText(e)); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const run = async (fn: () => Promise<void>) => { setError(''); setMsg(''); try { await fn(); } catch (e) { setError(errText(e)); } };
+
+  const title = (c: Checkpoint) => (c.kind === 'named' ? (c.name || t('cfgNamed')) : c.kind === 'restore' ? t('cfgRestorePoint') : t('cfgBefore', { keys: c.keys.slice(0, 3).map(cfgLabel).join(', ') + (c.keys.length > 3 ? ' …' : '') }));
+  const preview = (name: string, source: CfgSource) => run(async () => {
+    const plan = await api<CfgPlan>('/admin/config/preview', { method: 'POST', body: source });
+    setView({ title: name, source, plan });
+  });
+  const apply = () => view && run(async () => {
+    const r = await api<CfgPlan>('/admin/config/restore', { method: 'POST', body: view.source });
+    setView(null); await load();
+    setMsg(r.failed?.length ? t('cfgFailedSome', { items: r.failed.map((f) => cfgLabel(f.key)).join(', ') }) : t('cfgRestored'));
+  });
+  const fromFile = (f: File | null) => run(async () => {
+    if (!f) return;
+    let data: unknown;
+    try { data = JSON.parse(await f.text()); } catch { throw new Error('not_a_config_file'); }
+    await preview(t('cfgFromFile', { name: f.name.slice(0, 40) }), { data });
+  });
+
+  if (view) {
+    const p = view.plan;
+    return (
+      <div className="stack">
+        {error && <p className="error" role="alert">{error}</p>}
+        <section className="card stack" data-testid="cfg-preview">
+          <h2>{t('cfgPreviewTitle', { name: view.title })}</h2>
+          {p.changes.length === 0 ? <p>{t('cfgNoChanges')}</p> : (
+            <>
+              <p>{t('cfgChangeCount', { n: p.changes.length })}</p>
+              <div className="stack-sm">
+                {p.changes.map((c) => (
+                  <div className="row between" key={c.key} style={{ gap: 8 }}><span>{cfgLabel(c.key)}</span><span className="muted" dir="auto">{cfgValue(c.from)} → {cfgValue(c.to)}</span></div>
+                ))}
+              </div>
+            </>
+          )}
+          {p.skipped.length > 0 && <p className="muted">{t('cfgSkipped', { items: p.skipped.map((x) => `${cfgLabel(x.key)} (${tx(`cfgReason_${x.reason}`)})`).join(', ') })}</p>}
+          {p.warnings.length > 0 && <p className="muted">{t('cfgWarn', { items: p.warnings.map((w) => w.detail).join(', ') })}</p>}
+          <p className="muted">{t('cfgModulesNote')}</p>
+          <div className="row">
+            {p.changes.length > 0 && <button className="btn primary" onClick={apply}>{t('cfgApply')}</button>}
+            <button className="btn" onClick={() => setView(null)}>{t('cancel')}</button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="stack">
+      {error && <p className="error" role="alert">{error}</p>}
+      {msg && <p className="ok" role="status">{msg}</p>}
+      <section className="card stack">
+        {naming === null ? (
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <button className="btn primary" onClick={() => setNaming('')}>{t('cfgSave')}</button>
+            <a className="btn" href="/api/admin/config/export" download>{t('cfgDownload')}</a>
+            <label className="btn filebtn">{t('cfgRestoreFile')}<input type="file" accept="application/json,.json" hidden onChange={(e) => { fromFile(e.target.files?.[0] ?? null); e.target.value = ''; }} /></label>
+          </div>
+        ) : (
+          <form className="row" onSubmit={(e) => { e.preventDefault(); run(async () => { await api('/admin/config/checkpoints', { method: 'POST', body: { name: naming } }); setNaming(null); await load(); }); }}>
+            <input type="text" dir="auto" autoFocus aria-label={t('cfgName')} placeholder={t('cfgName')} maxLength={80} value={naming} onChange={(e) => setNaming(e.target.value)} className="grow" />
+            <button className="btn primary" type="submit">{t('cfgSaveNow')}</button>
+            <button className="btn" type="button" onClick={() => setNaming(null)}>{t('cancel')}</button>
+          </form>
+        )}
+        <p className="muted">{t('cfgAutoNote')}</p>
+        <p className="muted">{t('cfgSecretNote')}</p>
+      </section>
+
+      <h2>{t('cfgCheckpoints', { n: list.length })}</h2>
+      {list.length === 0 && <p className="muted">{t('cfgNone')}</p>}
+      {list.map((c) => (
+        <article className="card stack-sm" key={c.id} data-testid="cfg-checkpoint">
+          <div>
+            <strong dir="auto">{title(c)}</strong>
+            <div className="muted" style={{ fontSize: '.85rem' }}>{new Date(c.createdAt).toLocaleString()} · {t(c.kind === 'auto' ? 'cfgAuto' : c.kind === 'named' ? 'cfgNamed' : 'cfgRestorePoint')}{c.by ? ` · ${t('cfgBy', { name: c.by })}` : ''}</div>
+          </div>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <button className="btn small" onClick={() => preview(title(c), { checkpointId: c.id })}>{t('cfgRestore')}</button>
+            <a className="btn small" href={`/api/admin/config/checkpoints/${c.id}/export`} download>{t('cfgDownloadOne')}</a>
+            <button className="btn small danger" onClick={() => { if (confirm(t('cfgConfirmDelete'))) run(async () => { await api(`/admin/config/checkpoints/${c.id}`, { method: 'DELETE' }); await load(); }); }}>{t('cfgDelete')}</button>
+          </div>
+        </article>
       ))}
     </div>
   );

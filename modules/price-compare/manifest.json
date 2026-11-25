@@ -1,11 +1,11 @@
 {
   "id": "price-compare",
   "name": "Price comparison",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Compares the open items of a list across supermarket branches using the daily price files of twelve Israeli chains (read lazily, merged so a price stays until a newer one arrives), with receipt prices as a labelled fallback. You match a product once; the match is used at every branch of the chain, and clear matches are carried to the other chains automatically. It also suggests the products of your chosen branches while you add items.",
   "author": "Shopping list",
   "requires": {
-    "core": ">=1.7.1 <2.0.0"
+    "core": ">=1.9.0 <2.0.0"
   },
   "provides": [
     "price-source",
@@ -20,5 +20,25 @@
   ],
   "server": "server/index.js",
   "web": "web.js",
-  "i18n": "i18n.json"
+  "i18n": "i18n.json",
+  "config": {
+    "branch_cache_days": {
+      "type": "int",
+      "min": 1,
+      "max": 90,
+      "default": 7
+    },
+    "price_refresh_hours": {
+      "type": "int",
+      "min": 1,
+      "max": 168,
+      "default": 24
+    },
+    "old_after_days": {
+      "type": "int",
+      "min": 7,
+      "max": 365,
+      "default": 60
+    }
+  }
 }

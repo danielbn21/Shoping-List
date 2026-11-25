@@ -33,7 +33,8 @@ export function detectCurrency(): string {
   return 'USD';
 }
 
-export const effectiveCurrency = (me: Pick<Me, 'currency'>) => me.currency ?? detectCurrency();
+// the person's own choice, else the admin's default (1.9.0), else a guess from the timezone
+export const effectiveCurrency = (me: Pick<Me, 'currency'> & { currencyDefault?: string }) => me.currency ?? (me.currencyDefault && me.currencyDefault !== 'auto' ? me.currencyDefault : detectCurrency());
 
 export function currencyName(code: string): string {
   try { return new Intl.DisplayNames([numberLocale()], { type: 'currency' }).of(code) ?? code; } catch { return code; }

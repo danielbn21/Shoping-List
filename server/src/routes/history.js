@@ -130,7 +130,7 @@ export default async function historyRoutes(app) {
     if (Number.isNaN(total)) return bad(reply, 'invalid_total');
     const currency = /^[A-Z]{3}$/.test(b.currency ?? '') ? b.currency : (req.user.currency ?? null);
     const input = Array.isArray(b.lines) ? b.lines : [];
-    if (input.length > 200) return bad(reply, 'too_many_lines');
+    if (input.length > getSetting(db, 'max_trip_lines')) return bad(reply, 'too_many_lines');
     const lines = [];
     for (const l of input) {
       const name = cleanName(l?.name ?? '').slice(0, 100);
@@ -253,11 +253,12 @@ export default async function historyRoutes(app) {
 
   // since 1.8.0: read a receipt photo into rows for the Add a trip form, without saving the photo, a trip or anything else.
   // -> { engine, total, rows: [{ name, quantity, price }] }; the person edits the rows and saves the trip as usual.
-  app.post('/api/lists/:id/receipt-read', { ...pre, bodyLimit: 12 * 1024 * 1024, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
+  app.post('/api/lists/:id/receipt-read', { ...pre, bodyLimit: 50 * 1024 * 1024, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
     const acc = listAccess(req.user, Number(req.params.id));
     if (!acc) return bad(reply, 'not_found', 404);
     if (!canEdit(acc)) return bad(reply, 'forbidden', 403);
     const buf = req.body;
+    if (Buffer.isBuffer(buf) && buf.length > getSetting(db, 'max_image_mb') * 1024 * 1024) return bad(reply, 'file_too_large', 413);
     const kind = Buffer.isBuffer(buf) ? sniff(buf) : null;
     if (!kind) return bad(reply, 'invalid_image');
     const reader = app.modules.providerFor('receipt-reader', req.user.id);
@@ -285,10 +286,11 @@ export default async function historyRoutes(app) {
   });
 
   // ---------- receipt photos ----------
-  app.post('/api/trips/:id/receipts', { ...pre, bodyLimit: 12 * 1024 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+  app.post('/api/trips/:id/receipts', { ...pre, bodyLimit: 50 * 1024 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
     const ta = tripAccess(req.user, Number(req.params.id));
     if (!ta) return bad(reply, 'not_found', 404);
     const buf = req.body;
+    if (Buffer.isBuffer(buf) && buf.length > getSetting(db, 'max_image_mb') * 1024 * 1024) return bad(reply, 'file_too_large', 413);
     const kind = Buffer.isBuffer(buf) ? sniff(buf) : null; // trust the bytes, not the header
     if (!kind) return bad(reply, 'invalid_image');
     if (db.prepare('SELECT COUNT(*) c FROM receipts WHERE trip_id = ?').get(ta.trip.id).c >= 10) return bad(reply, 'too_many_receipts');

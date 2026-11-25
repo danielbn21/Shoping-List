@@ -47,20 +47,42 @@ export default function register(ctx) {
 
   // The category for a product or a name: see categories.js. -> { categoryId, how } | null
   const categoryFor = (hid, name, manufacturer) => {
-    if (!clean(name)) return null;
+    if (!flag('auto_category') || !clean(name)) return null;
     const maker = clean(manufacturer);
     return suggestCategory({
       name, similar: core.similarItem(hid, name), categories: core.listCategories(hid), items: core.householdItems(hid, { limit: 5000 }),
       byManufacturer: maker ? db.prepare('SELECT item_id AS itemId FROM barcode_items WHERE household_id = ? AND manufacturer = ? COLLATE NOCASE ORDER BY created_at DESC LIMIT 50').all(hid, maker) : [],
     });
   };
-  const rate = (max) => ({ config: { rateLimit: { max, timeWindow: '1 minute' } } });
+  const rate = (max) => ({ config: { rateLimit: { max: typeof max === 'function' ? max : () => max, timeWindow: '1 minute' } } });
+
+  // 1.3.0: the admin's settings (declared in the manifest as `config`, so checkpoints and config files carry them). A value outside its range counts as the default.
+  const RANGES = { scan_per_min: [180, 10, 600], repeat_seconds: [4, 1, 30] };
+  const num = (k) => { const [d, lo, hi] = RANGES[k]; const v = Number(ctx.settings.get(k, d)); return Number.isInteger(v) && v >= lo && v <= hi ? v : d; };
+  const flag = (k) => ctx.settings.get(k, true) !== false;
+  const adminSettings = () => ({ scanPerMin: num('scan_per_min'), repeatSeconds: num('repeat_seconds'), savePrice: flag('save_price'), autoCategory: flag('auto_category') });
+  ctx.routes.get('/config', async () => ({ repeatSeconds: num('repeat_seconds') }));   // what the scanner needs, for everyone
+  ctx.routes.get('/admin/settings', { access: 'admin' }, async () => ({ ...adminSettings(), ranges: RANGES }));
+  ctx.routes.put('/admin/settings', { access: 'admin' }, async (req, reply) => {
+    const b = req.body || {};
+    const next = {};
+    for (const [field, key] of [['scanPerMin', 'scan_per_min'], ['repeatSeconds', 'repeat_seconds']]) {
+      if (b[field] === undefined) continue;
+      const n = Number(b[field]);
+      if (!Number.isInteger(n) || n < RANGES[key][1] || n > RANGES[key][2]) return bad(reply, 'invalid_value');
+      next[key] = n;
+    }
+    for (const [field, key] of [['savePrice', 'save_price'], ['autoCategory', 'auto_category']]) if (b[field] !== undefined) next[key] = !!b[field];
+    for (const [k, v] of Object.entries(next)) ctx.settings.set(k, v);
+    ctx.audit(req.user.id, 'settings', null, next);
+    return adminSettings();
+  });
 
   // POST { code, tick, storeId?, itemId?, name? }
   //   -> { status: 'done', action, via, item, created, quantity, priceSaved, product }
   //    | { status: 'confirm', code, product, suggestion: { id, name } }   (resend with itemId, or with name to make a new item)
   //    | { status: 'unknown', code }                                      (resend with name)
-  ctx.routes.post('/lists/:id/scan', { config: { rateLimit: { max: 180, timeWindow: '1 minute' } } }, async (req, reply) => {
+  ctx.routes.post('/lists/:id/scan', rate(() => num('scan_per_min')), async (req, reply) => {
     const listId = Number(req.params.id);
     const acc = core.listAccess(req.user, listId);
     if (!acc) return bad(reply, 'not_found', 404);
@@ -90,7 +112,7 @@ export default function register(ctx) {
     } else return { status: 'unknown', code };
 
     // a per-kilo price is not the price of one item
-    const price = product && !product.weighted ? product.price : null;
+    const price = flag('save_price') && product && !product.weighted ? product.price : null;
     const cat = categoryFor(hid, product?.name ?? name, product?.manufacturer);   // given to a new item, or to an existing one that has no category
     const r = core.scanItem({ user: req.user, listId, itemId, name, price, tick, categoryId: cat?.categoryId ?? null });
     if (r.error) return bad(reply, r.error, FAIL[r.error] ?? 400);
@@ -195,7 +217,7 @@ export default function register(ctx) {
     try { product = ctx.capability('barcode-lookup', req.user.id)?.find({ listId, storeId, code }) ?? null; } catch (e) { ctx.log.warn?.({ err: String(e) }, 'barcode lookup failed'); }
     let r = null, targetId = b.itemId ? Number(b.itemId) : null;
     if (b.undo) {
-      const price = product && !product.weighted ? product.price : null;
+      const price = flag('save_price') && product && !product.weighted ? product.price : null;
       const cat = b.itemId ? categoryFor(hid, product?.name, product?.manufacturer) : categoryFor(hid, nm, product?.manufacturer);
       r = core.scanItem({ user: req.user, listId, itemId: b.itemId ? Number(b.itemId) : null, name: b.itemId ? null : nm, price, tick: !!b.tick, categoryId: cat?.categoryId ?? null });
       if (r.error) return bad(reply, r.error, FAIL[r.error] ?? 400);
@@ -215,7 +237,7 @@ export default function register(ctx) {
   // POST { code, itemId?, name? } -> { status: 'found', code, item: { id, name } | null, name, price, categoryId, product }
   //                               | { status: 'confirm', code, product, suggestion } | { status: 'unknown', code }
   // For Add a trip: says what a barcode is and costs and changes nothing on any list (a household item chosen by the person is remembered for the barcode).
-  ctx.routes.post('/lists/:id/scan/lookup', rate(180), async (req, reply) => {
+  ctx.routes.post('/lists/:id/scan/lookup', rate(() => num('scan_per_min')), async (req, reply) => {
     const listId = Number(req.params.id);
     const acc = core.listAccess(req.user, listId);
     if (!acc) return bad(reply, 'not_found', 404);

@@ -33,6 +33,7 @@ A shipped module (zip or bundled folder) holds `manifest.json`, `server/`, `web.
   "requires": { "core": ">=1.3.0 <2.0.0" },
   "dependsOn": [],
   "provides": ["price-source"],
+  "config": { "branch_cache_days": { "type": "int", "min": 1, "max": 90, "default": 7 }, "use_x": { "type": "bool", "default": true }, "mode": { "type": "enum", "values": ["a", "b"], "default": "a" } },
   "slots": ["list.tab", "manage.section", "settings.section", "admin.section", "shop.toolbar", "manage.toolbar", "trip.toolbar"],
   "server": "server/index.js",
   "web": "web.js",
@@ -137,3 +138,8 @@ An installed module is only replaced when the bundled (or uploaded) version is *
 - **Disable** blocks the module for everyone at once; routes and timers are removed at the next restart. **Uninstall** takes effect at the next restart; the module's database stays unless "also delete its data" is chosen. A bundled module you remove is not reinstalled behind your back; it appears under "Included with the app, not installed".
 - **Dependencies:** a module cannot be switched off or removed while an enabled module depends on it.
 - **Security:** an uploaded module's server code runs inside the server with full access to its own data and the process. Only admins can install; each install, enable, disable, uninstall, rollback and restart is in the audit log.
+
+
+## Configuration a module declares (core 1.9.0)
+
+A module lists the admin settings that count as *configuration* in its manifest, under `config`: `{ key: { type: 'int', min, max, default } | { type: 'bool', default } | { type: 'enum', values, default } }` (keys `a-z`, digits, `_`; the default must be inside the range). Those settings, and only those, are saved in checkpoints and config files (Admin → Config), range-checked on restore, and a checkpoint of the configuration is taken automatically the first time `ctx.settings.set(key, …)` really changes one (several keys set in one go share one checkpoint). A snapshot holds the value or, if it was never set, the manifest default, so a restore also brings back "never changed". Anything not declared (personal keys, data about the household's things, per-chain switches) is never in a snapshot. A module that is not running cannot have its settings restored (the preview says so). Changing a manifest's `config` is a change to a shipped file: bump the version and run `module-lock.mjs`.
