@@ -11,6 +11,7 @@ import { catName, fmt } from './util';
 import { SortableList, SortableRow, useDndSensors } from './dnd';
 import type { Cat, CatalogSuggestion, Detail, Entry, Me, PastItem, Store } from './types';
 import { useSlots } from './slots';
+import { CategoryInput, resolveCategoryId, categoryText, useCategoryText } from './CategoryInput';
 
 type Props = { data: Detail; me: Me; reload: () => Promise<void> };
 
@@ -55,8 +56,8 @@ function AddItem({ data, me, reload }: { data: Detail; me: Me; reload: () => Pro
   const [q, setQ] = useState('');
   const [qty, setQty] = useState('1');
   const [note, setNote] = useState('');
-  const [catId, setCatId] = useState('');
-  const [newCat, setNewCat] = useState('');
+  const [catText, setCatText] = useState('');
+  const madeCats = useRef(new Map<string, number>());
   const [sugg, setSugg] = useState<PastItem[]>([]);
   const [similar, setSimilar] = useState<{ id: number; name: string }[] | null>(null);
   // Products of the chosen supermarket branches, offered by a module while typing (nothing happens without one).
@@ -65,7 +66,6 @@ function AddItem({ data, me, reload }: { data: Detail; me: Me; reload: () => Pro
   const [pickedName, setPickedName] = useState('');
   const [catalogRef, setCatalogRef] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState('');
-  const creatingCat = catId === '__new__';
 
   useEffect(() => {
     setSimilar(null);
@@ -88,24 +88,15 @@ function AddItem({ data, me, reload }: { data: Detail; me: Me; reload: () => Pro
     return () => { stale = true; clearTimeout(id); };
   }, [q, list.householdId, list.id, hasCatalog]);
 
-  const reset = () => { setQ(''); setQty('1'); setNote(''); setCatId(''); setNewCat(''); setSugg([]); setCatalog([]); setCatalogRef(null); setPickedName(''); setSimilar(null); setError(''); };
-
-  async function createCategory() {
-    const name = newCat.trim();
-    if (!name) return;
-    try {
-      const r = await api<{ id: number }>(`/households/${list.householdId}/categories`, { method: 'POST', body: getLang() === 'he' ? { nameHe: name } : { nameEn: name } });
-      await reload();
-      setCatId(String(r.id)); setNewCat('');
-    } catch (e) { setError(errText(e)); }
-  }
+  const reset = () => { setQ(''); setQty('1'); setNote(''); setCatText(''); madeCats.current.clear(); setSugg([]); setCatalog([]); setCatalogRef(null); setPickedName(''); setSimilar(null); setError(''); };
 
   async function post(extra: Record<string, unknown>) {
     setError('');
     try {
+      const categoryId = await resolveCategoryId(catText, categories, list.householdId, madeCats.current) ?? undefined;
       await api(`/lists/${list.id}/entries`, {
         method: 'POST',
-        body: { quantity: Number(qty) || 1, note: note || undefined, categoryId: catId && !creatingCat ? Number(catId) : undefined, catalogRef: catalogRef ?? undefined, ...extra },
+        body: { quantity: Number(qty) || 1, note: note || undefined, categoryId, catalogRef: catalogRef ?? undefined, ...extra },
       });
       reset(); await reload();
     } catch (e) {
@@ -113,14 +104,14 @@ function AddItem({ data, me, reload }: { data: Detail; me: Me; reload: () => Pro
       else setError(errText(e));
     }
   }
-  const submit = (e: FormEvent) => { e.preventDefault(); if (q.trim() && !creatingCat) post({ name: q.trim() }); };
+  const submit = (e: FormEvent) => { e.preventDefault(); if (q.trim()) post({ name: q.trim() }); };
   const name = q.trim();
   // A product picked from the stores: its name, a note (brand and pack size) and, when the household has a similar item, its category are filled in.
   // The quantity is still yours to set; the product is remembered as the match for this item when it is added.
   const pickCatalog = (s: CatalogSuggestion) => {
     setQ(s.name); setPickedName(s.name); setCatalogRef(s.ref); setCatalog([]); setSugg([]); setSimilar(null);
     if (s.note) setNote(s.note);
-    if (s.categoryId && categories.some((c) => c.id === s.categoryId)) setCatId(String(s.categoryId));
+    if (s.categoryId && categories.some((c) => c.id === s.categoryId)) setCatText(categoryText(s.categoryId, categories));
   };
   const priceText = (s: CatalogSuggestion) => {
     if (s.price === null) return '';
@@ -174,28 +165,15 @@ function AddItem({ data, me, reload }: { data: Detail; me: Me; reload: () => Pro
       {name && (
         <div className="addpanel stack-sm">
           <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'nowrap' }}>
-            <label className="field grow"><span>{t('categoryLabel')}</span>
-              <select value={catId} onChange={(e) => setCatId(e.target.value)}>
-                <option value="">{t('uncategorized')}</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{catName(c)}</option>)}
-                <option value="__new__">{t('newCategoryOption')}</option>
-              </select>
-            </label>
+            <CategoryInput categories={categories} value={catText} onChange={setCatText} />
             <label className="field" style={{ width: 96 }}><span>{t('quantityLabel')}</span>
               <input type="number" inputMode="decimal" min="0.01" step="any" value={qty} onChange={(e) => setQty(e.target.value)} dir="ltr" style={{ textAlign: 'center' }} />
             </label>
           </div>
-          {creatingCat && (
-            <div className="inline-form">
-              <input type="text" dir="auto" autoFocus value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder={t('newCategoryName')} aria-label={t('newCategoryName')}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createCategory(); } }} />
-              <button type="button" className="btn" onClick={createCategory} disabled={!newCat.trim()}>{t('createCategory')}</button>
-            </div>
-          )}
           <label className="field"><span>{t('noteLabel')}</span>
             <input type="text" dir="auto" value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
-          <button className="btn primary" type="submit" disabled={creatingCat} style={{ minHeight: 48 }}>{t('add')}</button>
+          <button className="btn primary" type="submit" style={{ minHeight: 48 }}>{t('add')}</button>
         </div>
       )}
       {error && <p className="error" role="alert">{error}</p>}
@@ -340,11 +318,7 @@ function OnThisList({ data, reload }: { data: Detail; reload: () => Promise<void
                               <label className="field"><span>{t('noteLabel')}</span>
                                 <input type="text" dir="auto" defaultValue={e.note ?? ''}
                                   onBlur={(ev) => { if (ev.target.value !== (e.note ?? '')) run(() => api(`/entries/${e.id}`, { method: 'PATCH', body: { note: ev.target.value } })); }} /></label>
-                              <label className="field"><span>{t('categoryLabel')}</span>
-                                <select value={e.categoryId ?? ''} onChange={(ev) => run(() => api(`/entries/${e.id}`, { method: 'PATCH', body: { categoryId: ev.target.value ? Number(ev.target.value) : null } }))}>
-                                  <option value="">{t('uncategorized')}</option>
-                                  {categories.map((c) => <option key={c.id} value={c.id}>{catName(c)}</option>)}
-                                </select></label>
+                              <EntryCategory entry={e} categories={categories} householdId={list.householdId} run={run} />
                             </div>
                           )}
                         </>
@@ -493,7 +467,7 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
                       onClick={() => removeItems([i.id], t('confirmRemoveBank', { name: i.name }))}>✕</button>}
                     <button type="button" className="btn primary grow" onClick={() => addOne(n)}>{t('addNToList', { n: fmt(n) })}</button>
                   </div>
-                  {editing === i.id && <ItemEditor item={i} categories={categories} onCancel={() => setEditing(null)} onSaved={async () => { await reload(); await load(); setEditing(null); }} />}
+                  {editing === i.id && <ItemEditor item={i} categories={categories} householdId={list.householdId} onCancel={() => setEditing(null)} onSaved={async () => { await reload(); await load(); setEditing(null); }} />}
                 </div>
               )}
             </div>
@@ -504,10 +478,23 @@ function PastItems({ data, reload }: { data: Detail; reload: () => Promise<void>
   );
 }
 
+// Category of an entry already on the list: type a name (existing or new); it is saved when you leave the field or press Enter.
+function EntryCategory({ entry, categories, householdId, run }: { entry: Entry; categories: Cat[]; householdId: number; run: (fn: () => Promise<unknown>) => Promise<void> }) {
+  const [text, setText] = useCategoryText(entry.categoryId, categories);
+  const commit = (value: string) => {
+    if (value.trim() === categoryText(entry.categoryId, categories).trim()) return;   // unchanged
+    run(async () => {
+      const categoryId = await resolveCategoryId(value, categories, householdId);
+      await api(`/entries/${entry.id}`, { method: 'PATCH', body: { categoryId } });
+    });
+  };
+  return <CategoryInput categories={categories} value={text} onChange={setText} onCommit={commit} />;
+}
+
 // Edit what the bank remembers about an item: its name, category, default note and an optional price.
-function ItemEditor({ item, categories, onSaved, onCancel }: { item: PastItem; categories: Cat[]; onSaved: () => void; onCancel: () => void }) {
+function ItemEditor({ item, categories, householdId, onSaved, onCancel }: { item: PastItem; categories: Cat[]; householdId: number; onSaved: () => void; onCancel: () => void }) {
   const [name, setName] = useState(item.name);
-  const [cat, setCat] = useState(item.categoryId === null ? '' : String(item.categoryId));
+  const [catText, setCatText] = useCategoryText(item.categoryId, categories);
   const [note, setNote] = useState(item.defaultNote ?? '');
   const [price, setPrice] = useState(item.price === null ? '' : String(item.price));
   const [error, setError] = useState('');
@@ -515,7 +502,8 @@ function ItemEditor({ item, categories, onSaved, onCancel }: { item: PastItem; c
   async function submit(e: FormEvent) {
     e.preventDefault(); setError('');
     try {
-      await api(`/items/${item.id}`, { method: 'PATCH', body: { name, categoryId: cat ? Number(cat) : null, defaultNote: note, price: price === '' ? null : Number(price) } });
+      const categoryId = await resolveCategoryId(catText, categories, householdId);
+      await api(`/items/${item.id}`, { method: 'PATCH', body: { name, categoryId, defaultNote: note, price: price === '' ? null : Number(price) } });
       onSaved();
     } catch (err) { setError(errText(err)); }
   }
@@ -523,11 +511,7 @@ function ItemEditor({ item, categories, onSaved, onCancel }: { item: PastItem; c
     <form className="edit-panel past-edit" onSubmit={submit}>
       <label className="field"><span>{t('itemLabel')}</span>
         <input type="text" dir="auto" required value={name} onChange={(e) => setName(e.target.value)} /></label>
-      <label className="field"><span>{t('categoryLabel')}</span>
-        <select value={cat} onChange={(e) => setCat(e.target.value)}>
-          <option value="">{t('uncategorized')}</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{catName(c)}</option>)}
-        </select></label>
+      <CategoryInput categories={categories} value={catText} onChange={setCatText} />
       <label className="field"><span>{t('defaultNote')}</span>
         <input type="text" dir="auto" value={note} onChange={(e) => setNote(e.target.value)} />
         <span className="muted" style={{ fontWeight: 400 }}>{t('itemEditorHint')}</span></label>

@@ -1,4 +1,4 @@
-import { audit, cleanName } from '../util.js';
+import { audit, cleanName, getSetting } from '../util.js';
 import { makeAccess } from '../access.js';
 import { addToList, rememberForList } from '../entries.js';
 import { normalize, findMatches, isHebrew } from '../match.js';
@@ -35,12 +35,13 @@ export default async function itemsCsvRoutes(app) {
   });
 
   // ---- import: preview first (apply=false), then apply ----
-  app.post('/api/lists/:id/items/import', { ...pre, bodyLimit: 3 * 1024 * 1024 }, async (req, reply) => {
+  app.post('/api/lists/:id/items/import', { ...pre, bodyLimit: 20 * 1024 * 1024 }, async (req, reply) => {
     const acc = listAccess(req.user, Number(req.params.id));
     if (!acc) return bad(reply, 'not_found', 404);
     if (!canEdit(acc)) return bad(reply, 'forbidden', 403);
     const b = req.body || {};
     const hid = acc.list.household_id;
+    if (Buffer.byteLength(String(b.csv ?? '')) > getSetting(db, 'max_csv_mb') * 1024 * 1024) return bad(reply, 'file_too_large', 413);
     const table = parseCsv(String(b.csv ?? ''));
     if (table.length < 2) return bad(reply, 'csv_empty');
     if (table.length > 5001) return bad(reply, 'csv_too_large');

@@ -55,6 +55,20 @@ export const SETTING_DEFAULTS = {
   match_strictness: 'normal', // used by duplicate detection (Stage 2)
   allow_user_households: true, // may ordinary users create their own households?
   estimates_default: true,     // show price estimates in the Shop tab unless the user chose otherwise
+  // since 1.9.0: what used to be fixed in the code (ranges are in config.js)
+  default_language: 'en',      // language of a new account (en or an installed language module)
+  default_currency: 'auto',    // 'auto' = guessed from the person's timezone, else a code such as ILS
+  max_image_mb: 12,            // largest receipt photo
+  max_module_mb: 20,           // largest module zip
+  max_csv_mb: 3,               // largest items CSV
+  max_trip_lines: 200,         // most item lines in one trip
+  rl_login_per_min: 10,        // sign-in attempts per minute (per address)
+  rl_register_per_min: 10,
+  rl_forgot_per_min: 5,        // password-reset requests per minute
+  rl_reset_per_min: 10,
+  invite_default_days: 7,
+  invite_max_days: 365,
+  invite_max_uses: 100,
   smtp: { host: '', port: 587, secure: false, user: '', pass: '', from: '' },
   default_categories: [
     { en: 'Produce', he: 'פירות וירקות' },
@@ -121,6 +135,7 @@ export function userPayload(db, u) {
     households,
     canCreateHousehold: u.role === 'admin' || !!getSetting(db, 'allow_user_households'),
     currency: u.currency ?? null,
+    currencyDefault: getSetting(db, 'default_currency'),   // 'auto' or a code: what to use until the person picks a currency
     prefs,
     // price estimates in the Shop tab: the user's own choice, else the admin's default
     estimatesEnabled: typeof prefs.showEstimates === 'boolean' ? prefs.showEstimates : !!getSetting(db, 'estimates_default'),

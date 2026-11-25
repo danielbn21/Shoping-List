@@ -11,6 +11,7 @@ export type Me = {
   language: Lang; theme: 'system' | 'light' | 'dark'; colorTheme: string; showAddedBy: boolean;
   mustChangePassword: boolean; households: Household[]; canCreateHousehold: boolean;
   currency: string | null;
+  currencyDefault?: string;
   prefs: { manageOrder?: string[]; manageOpen?: Record<string, boolean>; showEstimates?: boolean };
   estimatesEnabled: boolean;   // price estimates in the Shop tab: the user's own choice, else the admin's default
   estimatesDefault: boolean;   // interface preferences that follow the user

@@ -382,6 +382,19 @@ INSERT OR IGNORE INTO list_items(list_id, item_id, added_at) SELECT list_id, ite
 INSERT OR IGNORE INTO list_items(list_id, item_id, added_at) SELECT list_id, item_id, MIN(purchased_at) FROM purchase_events
   WHERE list_id IS NOT NULL AND item_id IS NOT NULL GROUP BY list_id, item_id;
 `,
+  // 1.9.0: saved copies of the admin configuration (see config.js). Appended: no earlier migration is touched.
+  `
+CREATE TABLE config_checkpoints (
+  id INTEGER PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('auto','named','restore')),
+  name TEXT,
+  keys TEXT,
+  data TEXT NOT NULL
+);
+CREATE INDEX config_checkpoints_created ON config_checkpoints(created_at);
+`,
 ];
 
 export function openDb(dataDir) {

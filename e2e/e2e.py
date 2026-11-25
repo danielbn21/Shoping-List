@@ -105,14 +105,10 @@ with sync_playwright() as p:
     def add(name, qty="1", cat=None, note=None, new_cat=None):
         page.get_by_label("Item", exact=True).fill(name)
         page.get_by_label("Quantity").first.fill(qty)
-        sel = page.locator("form select").first
-        if new_cat:
-            sel.select_option("__new__")
-            page.locator("form").first.get_by_placeholder("New category name").fill(new_cat)
-            page.get_by_role("button", name="Create", exact=True).click()
-            page.locator("form").first.get_by_placeholder("New category name").wait_for(state="detached")
-        elif cat:
-            sel.select_option(label=cat)
+        # since 1.9.1 the category is a typed field: an existing name is used, a new name is created when the item is added
+        typed = new_cat or cat
+        if typed:
+            page.get_by_label("Category", exact=True).first.fill(typed)
         if note:
             page.get_by_label("Note (optional)").fill(note)
         page.get_by_role("button", name="Add", exact=True).click()
@@ -123,6 +119,14 @@ with sync_playwright() as p:
     add("Milk", "1", cat="Dairy & eggs")
     add("Dish soap", "1", new_cat="Cleaning supplies")
     check("custom category created and used", page.locator("section.group:has-text('Cleaning supplies') .entry.manage").count() == 1)
+    # 1.9.1: typing a category freehand
+    add("Sponges", "1", cat="  cleaning SUPPLIES ")
+    check("1.9.1: a typed name matches an existing category (case and spaces ignored), no duplicate",
+          page.locator("section.group:has-text('Cleaning supplies') .entry.manage").count() == 2
+          and page.locator("section.group .section-title:has-text('Cleaning supplies')").count() == 1)
+    add("Olive oil", "1", cat="Oils & vinegar")
+    check("1.9.1: a brand-new typed category is created and used",
+          page.locator("section.group:has-text('Oils & vinegar') .entry.manage").count() == 1)
     add("tomato", "1")  # same item as Tomatoes -> merge qty
     row = page.locator(".entry.manage", has_text="Tomatoes").first
     check("'tomato' merged into Tomatoes (2+1=3)", row.locator("output").inner_text().strip() == "3", row.inner_text())
@@ -196,11 +200,11 @@ with sync_playwright() as p:
     page.screenshot(path="/tmp/shots/04-shop-checked.png")
     page.locator(".shopbar button:has-text('Finish trip')").click()
     page.wait_for_selector("text=Finish this trip?")
-    check("finish panel states counts", page.locator("text=2 bought. 2 stay on the list.").count() == 1, page.locator(".shopbar").inner_text())
+    check("finish panel states counts", page.locator("text=2 bought. 4 stay on the list.").count() == 1, page.locator(".shopbar").inner_text())
     page.get_by_role("button", name="Yes, finish").click()
     page.wait_for_selector("text=Trip finished")
     page.wait_for_timeout(500)
-    check("finished items leave the list; others stay", page.locator(".shop-row").count() == 2 and page.locator(".shop-row:has-text('Milk')").count() == 0)
+    check("finished items leave the list; others stay", page.locator(".shop-row").count() == 4 and page.locator(".shop-row:has-text('Milk')").count() == 0)
 
     # ---- re-add from history ----
     manage(page, "past")
@@ -671,7 +675,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Modules", exact=True).click()
     page.wait_for_selector("text=Price comparison")
     check("Admin > Modules lists the bundled modules (three features and the Hebrew language) as running", page.locator("section.card .chip", has_text="Running").count() == 4)
-    check("Configure is only offered where a module has settings", page.get_by_role("button", name="Configure").count() == 1)
+    check("Configure is only offered where a module has settings (Compare prices and, since 1.3.0, Barcode scanning)", page.get_by_role("button", name="Configure").count() == 2)
     page.screenshot(path="/tmp/shots/11-admin-modules.png", full_page=True)
     page.locator("input[type=file]").set_input_files("/tmp/sample-module.zip")
     page.wait_for_selector("text=Install Sample module 1.0.0?")

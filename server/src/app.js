@@ -10,6 +10,8 @@ import { openDb } from './db.js';
 import { registerAuth } from './auth.js';
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
+import configRoutes from './routes/config.js';
+import { createConfig } from './config.js';
 import listRoutes from './routes/lists.js';
 import shoppingRoutes from './routes/shopping.js';
 import householdRoutes from './routes/households.js';
@@ -39,15 +41,16 @@ export async function buildApp({ dataDir, webDir, logger = true, bundledDir, mod
   app.decorate('secrets', makeSecrets(dataDir));
   app.decorate('modules', createModules(app, { bundledDir: bundledDir === false ? null : (bundledDir ?? findBundledDir()), moduleOptions, coreVersion: VERSION }));
   app.decorate('receipts', createReceiptQueue(app));
+  app.decorate('config', createConfig(app));   // since 1.9.0: checkpoints and files of the admin configuration
   app.decorate('userPayload', (u) => ({ ...userPayload(app.db, u), ...app.modules.payloadFor(u) }));
   app.decorate('requestRestart', () => setTimeout(() => (onRestart ? onRestart() : app.close().finally(() => process.exit(0))), 400).unref?.());
   await app.register(cookie);
   await app.register(rateLimit, { global: false });
   registerAuth(app);
   // Receipt photos arrive as raw image bytes (the web app compresses them first).
-  app.addContentTypeParser(['image/jpeg', 'image/png', 'image/webp'], { parseAs: 'buffer', bodyLimit: 12 * 1024 * 1024 }, (req, body, done) => done(null, body));
+  app.addContentTypeParser(['image/jpeg', 'image/png', 'image/webp'], { parseAs: 'buffer', bodyLimit: 50 * 1024 * 1024 }, (req, body, done) => done(null, body));
   // Module zips arrive as raw bytes too.
-  app.addContentTypeParser(['application/zip', 'application/x-zip-compressed', 'application/octet-stream'], { parseAs: 'buffer', bodyLimit: 21 * 1024 * 1024 }, (req, body, done) => done(null, body));
+  app.addContentTypeParser(['application/zip', 'application/x-zip-compressed', 'application/octet-stream'], { parseAs: 'buffer', bodyLimit: 100 * 1024 * 1024 }, (req, body, done) => done(null, body));
 
   // CSRF defence in depth (cookies are also SameSite=Lax): API writes must carry our custom header.
   app.addHook('onRequest', async (req, reply) => {
@@ -67,6 +70,7 @@ export async function buildApp({ dataDir, webDir, logger = true, bundledDir, mod
   app.get('/api/health', async () => ({ ok: true, version: VERSION }));
   await app.register(authRoutes);
   await app.register(adminRoutes);
+  await app.register(configRoutes);
   await app.register(listRoutes);
   await app.register(shoppingRoutes);
   await app.register(householdRoutes);

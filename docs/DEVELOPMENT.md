@@ -58,3 +58,11 @@ Purchase history export: date and time (UTC), household, list, store, item, cate
 3. Run the tests, then tag and push: `git tag -a vX.Y.Z -m "vX.Y.Z" && git push && git push --tags`. The tag builds, tests and publishes the image (see [Deployment](DEPLOYMENT.md)).
 
 More: [Modules](MODULES.md) explains the module contract; `HANDOFF.md` is the working state for continuing development, with the release history (section 3) and what is left to do.
+
+
+## Admin settings, checkpoints and files (1.9.0)
+
+- **Adding an admin setting:** add its default to `SETTING_DEFAULTS` (`server/src/util.js`), its type and range to `FIELDS` (`server/src/config.js`; `group: 'limits'` or `'abuse'` makes it appear in Settings automatically, other groups need a screen), a label `set_<key>` in `web/src/i18n.ts` and in `lang-he`, and use `getSetting(db, key)` where it is enforced. Every value goes through `normalizeValue`, the same check a restore uses.
+- **Limits** are enforced in the handlers (`max_image_mb`, `max_module_mb`, `max_csv_mb`, `max_trip_lines`); the parsers' own limits are fixed ceilings (50 MB images, 100 MB modules, 20 MB CSV, 1 MB JSON). **Rate limits** are functions that read the setting on every request, so a change applies at once.
+- **Checkpoints** (`config_checkpoints`, migration 10): `app.config.autoBefore(keys, actorId)` before a change (the PUT settings route, a module's declared settings and switching a module on or off do it), `snapshot()`, `plan(data)` (what a restore would do, nothing written), `apply(plan, actorId)` (saves a restore point first). The newest 30 automatic ones are kept. The format is `{ format: 'shoplist-config', formatVersion: 1, appVersion, createdAt, core, modules, omitted }`; a newer `formatVersion` is refused. The SMTP password is never in one and a restore keeps the server's.
+- Routes: `/api/admin/config/checkpoints` (GET, POST, DELETE `/:id`), `/export`, `/checkpoints/:id/export`, `/preview`, `/restore` (body `{ checkpointId }` or `{ data }`).
