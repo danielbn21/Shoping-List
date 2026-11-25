@@ -3,6 +3,7 @@ import {
   validUsername, validEmail, cleanName, allSettings, getSetting, setSetting,
 } from '../util.js';
 import { revokeSessions } from '../auth.js';
+import { FIELDS, fieldMeta, normalizeValue } from '../config.js';
 import { sendMail } from '../mail.js';
 
 const bad = (reply, error, code = 400) => reply.code(code).send({ error });
@@ -79,7 +80,7 @@ export default async function adminRoutes(app) {
     if (!generated && password.length < getSetting(db, 'min_password_length')) return bad(reply, 'password_short');
     const hash = await hashPassword(password);
     const id = db.transaction(() => {
-      const uid = createUser(db, { username: b.username, name, email: b.email, passwordHash: hash, role, mustChange: 1, language: app.modules.languageCodes().includes(b.language) ? b.language : 'en' });
+      const uid = createUser(db, { username: b.username, name, email: b.email, passwordHash: hash, role, mustChange: 1, language: app.modules.languageCodes().includes(b.language) ? b.language : (app.modules.languageCodes().includes(getSetting(db, 'default_language')) ? getSetting(db, 'default_language') : 'en') });
       if (b.householdId) {
         if (!db.prepare('SELECT 1 FROM households WHERE id = ?').get(Number(b.householdId))) throw Object.assign(new Error('household_not_found'), { code: 'household_not_found' });
         db.prepare("INSERT INTO household_members(household_id, user_id, role) VALUES (?,?,'member')").run(Number(b.householdId), uid);
@@ -136,56 +137,36 @@ export default async function adminRoutes(app) {
 
   // ---- settings ----
   const maskSettings = (s) => ({ ...s, smtp: { ...s.smtp, pass: s.smtp.pass ? '********' : '' } });
-  app.get('/api/admin/settings', pre, async () => ({ settings: maskSettings(allSettings(db)) }));
+  app.get('/api/admin/settings', pre, async () => ({
+    settings: maskSettings(allSettings(db)),
+    fields: fieldMeta(),   // the allowed ranges, so the screen draws them from the one place
+    languages: ['en', ...app.modules.languageCodes()],
+    server: {   // fixed when the server starts (Docker environment); shown, not editable
+      version: app.coreVersion, node: process.version, port: process.env.PORT ?? '3000', dataDir: app.dataDir, modulesDir: app.modules.root,
+      ocrLangs: process.env.OCR_LANGS || 'heb+eng', webDir: process.env.WEB_DIR || '',
+    },
+  }));
 
   app.put('/api/admin/settings', pre, async (req, reply) => {
+    // every value goes through the schema in config.js (the same checks a restore uses); what really changes gets a checkpoint first
     const b = req.body || {};
-    if (b.registration_mode !== undefined) {
-      if (!['open', 'invite-only', 'admin-only'].includes(b.registration_mode)) return bad(reply, 'invalid_value');
-      setSetting(db, 'registration_mode', b.registration_mode);
+    const next = {};
+    for (const [k, v] of Object.entries(b)) {
+      if (!FIELDS[k]) continue;
+      const cur = getSetting(db, k);
+      const r = normalizeValue(FIELDS[k], k === 'smtp' ? { ...cur, ...(v && typeof v === 'object' ? v : {}), ...(v && v.port !== undefined ? { port: Number(v.port) || 587 } : {}) } : v, cur, { languageCodes: () => app.modules.languageCodes() });
+      if (r.error) return bad(reply, 'invalid_value');
+      if (JSON.stringify(cur) !== JSON.stringify(r.value)) next[k] = r.value;
     }
-    if (b.session_days !== undefined) {
-      const n = Number(b.session_days);
-      if (!Number.isInteger(n) || n < 1 || n > 3650) return bad(reply, 'invalid_value');
-      setSetting(db, 'session_days', n);
-    }
-    if (b.allow_user_households !== undefined) setSetting(db, 'allow_user_households', !!b.allow_user_households);
-    if (b.estimates_default !== undefined) setSetting(db, 'estimates_default', !!b.estimates_default);
-    if (b.min_password_length !== undefined) {
-      const n = Number(b.min_password_length);
-      if (!Number.isInteger(n) || n < 6 || n > 64) return bad(reply, 'invalid_value');
-      setSetting(db, 'min_password_length', n);
-    }
-    if (b.app_url !== undefined) {
-      const u = String(b.app_url).trim();
-      if (u && !/^https?:\/\/[^\s]+$/.test(u)) return bad(reply, 'invalid_value');
-      setSetting(db, 'app_url', u);
-    }
-    if (b.match_strictness !== undefined) {
-      if (!['loose', 'normal', 'strict'].includes(b.match_strictness)) return bad(reply, 'invalid_value');
-      setSetting(db, 'match_strictness', b.match_strictness);
-    }
-    if (b.default_categories !== undefined) {
-      const ok = Array.isArray(b.default_categories) && b.default_categories.every((c) => c && typeof c.en === 'string' && typeof c.he === 'string' && c.en && c.he);
-      if (!ok) return bad(reply, 'invalid_value');
-      setSetting(db, 'default_categories', b.default_categories.map((c) => ({ en: c.en.slice(0, 60), he: c.he.slice(0, 60) })));
-    }
-    if (b.smtp !== undefined) {
-      const cur = getSetting(db, 'smtp');
-      const s = b.smtp || {};
-      const next = {
-        host: String(s.host ?? cur.host).trim(),
-        port: Number(s.port ?? cur.port) || 587,
-        secure: s.secure !== undefined ? !!s.secure : cur.secure,
-        user: String(s.user ?? cur.user).trim(),
-        pass: s.pass === undefined || s.pass === '********' ? cur.pass : String(s.pass),
-        from: String(s.from ?? cur.from).trim(),
-      };
-      setSetting(db, 'smtp', next);
+    const keys = Object.keys(next);
+    if (keys.length) {
+      app.config.autoBefore(keys, req.user.id);
+      for (const [k, v] of Object.entries(next)) setSetting(db, k, v);
     }
     audit(db, req.user.id, 'admin.settings_updated', null, { keys: Object.keys(b) });
     return { settings: maskSettings(allSettings(db)) };
   });
+
 
   app.post('/api/admin/settings/test-email', pre, async (req, reply) => {
     const to = String((req.body || {}).to || '');

@@ -55,6 +55,11 @@
     "scanUndoMerged": "{name} will go down by one on the list.",
     "scanUndoCreated": "{name} was made by this scan and will be removed.",
     "scanUndoRemoved": "{name} will be removed from the list.",
-    "err_same_item": "The barcode already belongs to that item."
+    "err_same_item": "The barcode already belongs to that item.",
+    "scanAdminTitle": "Scanning",
+    "scanAdminPerMin": "Scans per minute, per person",
+    "scanAdminRepeat": "Ignore the same barcode for (seconds)",
+    "scanAdminSavePrice": "A scan saves the product price on the item",
+    "scanAdminAuto": "Choose a category automatically for scanned items"
   }
 }

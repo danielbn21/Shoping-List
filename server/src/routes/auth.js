@@ -36,7 +36,7 @@ export default async function authRoutes(app) {
     if (!pwOk(b.password)) return bad(reply, 'password_short');
     const hash = await hashPassword(b.password);
     const uid = db.transaction(() => {
-      const id = createUser(db, { username: b.username, name, email: b.email, passwordHash: hash, role: 'admin', language: app.modules.languageCodes().includes(b.language) ? b.language : 'en' });
+      const id = createUser(db, { username: b.username, name, email: b.email, passwordHash: hash, role: 'admin', language: app.modules.languageCodes().includes(b.language) ? b.language : (app.modules.languageCodes().includes(getSetting(db, 'default_language')) ? getSetting(db, 'default_language') : 'en') });
       createHousehold(db, cleanName(b.householdName) || `${name}`, id);
       audit(db, id, 'setup.admin_created', b.username);
       return id;
@@ -46,7 +46,7 @@ export default async function authRoutes(app) {
   });
 
   // ---- login / logout ----
-  app.post('/api/auth/login', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+  app.post('/api/auth/login', { config: { rateLimit: { max: () => getSetting(app.db, 'rl_login_per_min'), timeWindow: '1 minute' } } }, async (req, reply) => {
     const { login, password } = req.body || {};
     if (typeof login !== 'string' || typeof password !== 'string') return bad(reply, 'invalid_credentials', 401);
     const u = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(login.trim(), login.trim());
@@ -66,7 +66,7 @@ export default async function authRoutes(app) {
   });
 
   // ---- registration (admin-controlled mode) ----
-  app.post('/api/auth/register', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+  app.post('/api/auth/register', { config: { rateLimit: { max: () => getSetting(app.db, 'rl_register_per_min'), timeWindow: '1 minute' } } }, async (req, reply) => {
     const mode = getSetting(db, 'registration_mode');
     if (mode === 'admin-only') return bad(reply, 'registration_closed', 403);
     const b = req.body || {};
@@ -88,7 +88,7 @@ export default async function authRoutes(app) {
     if (b.email && db.prepare('SELECT 1 FROM users WHERE email = ?').get(b.email)) return bad(reply, 'email_taken', 409);
     const hash = await hashPassword(b.password);
     const uid = db.transaction(() => {
-      const id = createUser(db, { username: b.username, name, email: b.email, passwordHash: hash, language: app.modules.languageCodes().includes(b.language) ? b.language : 'en' });
+      const id = createUser(db, { username: b.username, name, email: b.email, passwordHash: hash, language: app.modules.languageCodes().includes(b.language) ? b.language : (app.modules.languageCodes().includes(getSetting(db, 'default_language')) ? getSetting(db, 'default_language') : 'en') });
       if (invite && invite.scope === 'household') {
         db.prepare("INSERT INTO household_members(household_id, user_id, role) VALUES (?,?,'member')").run(invite.household_id, id);
       } else {
@@ -103,7 +103,7 @@ export default async function authRoutes(app) {
   });
 
   // ---- password reset by email (only works when SMTP is configured) ----
-  app.post('/api/auth/forgot', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (req) => {
+  app.post('/api/auth/forgot', { config: { rateLimit: { max: () => getSetting(app.db, 'rl_forgot_per_min'), timeWindow: '1 minute' } } }, async (req) => {
     const login = String((req.body || {}).login || '').trim();
     // Always answer "ok" so this endpoint cannot be used to discover accounts.
     if (!login || !isSmtpConfigured(db)) return { ok: true };
@@ -122,7 +122,7 @@ export default async function authRoutes(app) {
     return { ok: true };
   });
 
-  app.post('/api/auth/reset', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+  app.post('/api/auth/reset', { config: { rateLimit: { max: () => getSetting(app.db, 'rl_reset_per_min'), timeWindow: '1 minute' } } }, async (req, reply) => {
     const { token, password } = req.body || {};
     if (typeof token !== 'string') return bad(reply, 'invalid_token');
     if (!pwOk(password)) return bad(reply, 'password_short');
@@ -219,8 +219,8 @@ export default async function authRoutes(app) {
     const b = req.body || {};
     const hid = Number(b.householdId);
     if (!hid || !canInvite(req.user, hid)) return bad(reply, 'forbidden', 403);
-    const days = Math.min(Math.max(Number(b.expiresInDays) || 7, 1), 365);
-    const maxUses = b.maxUses ? Math.min(Math.max(Number(b.maxUses), 1), 100) : null;
+    const days = Math.min(Math.max(Number(b.expiresInDays) || getSetting(db, 'invite_default_days'), 1), getSetting(db, 'invite_max_days'));
+    const maxUses = b.maxUses ? Math.min(Math.max(Number(b.maxUses), 1), getSetting(db, 'invite_max_uses')) : null;
     const code = generateInviteCode();
     db.prepare(`INSERT INTO invites(code, scope, household_id, created_by, created_at, expires_at, max_uses)
       VALUES (?, 'household', ?, ?, ?, ?, ?)`).run(code, hid, req.user.id, Date.now(), Date.now() + days * 86400000, maxUses);

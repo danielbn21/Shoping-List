@@ -671,7 +671,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Modules", exact=True).click()
     page.wait_for_selector("text=Price comparison")
     check("Admin > Modules lists the bundled modules (three features and the Hebrew language) as running", page.locator("section.card .chip", has_text="Running").count() == 4)
-    check("Configure is only offered where a module has settings", page.get_by_role("button", name="Configure").count() == 1)
+    check("Configure is only offered where a module has settings (Compare prices and, since 1.3.0, Barcode scanning)", page.get_by_role("button", name="Configure").count() == 2)
     page.screenshot(path="/tmp/shots/11-admin-modules.png", full_page=True)
     page.locator("input[type=file]").set_input_files("/tmp/sample-module.zip")
     page.wait_for_selector("text=Install Sample module 1.0.0?")

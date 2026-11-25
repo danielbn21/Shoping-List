@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { audit } from '../util.js';
+import { audit, getSetting } from '../util.js';
 
 const bad = (reply, error, code = 400, detail) => reply.code(code).send(detail ? { error, detail } : { error });
 const TYPES = { 'web.js': 'application/javascript; charset=utf-8', 'web.css': 'text/css; charset=utf-8', 'i18n.json': 'application/json; charset=utf-8', 'strings.json': 'application/json; charset=utf-8' };
@@ -49,9 +49,10 @@ export default async function moduleRoutes(app) {
   });
 
   // Step 1 of an upload: look inside the zip and report what it is. Nothing is installed yet.
-  app.post('/api/admin/modules/inspect', { ...admin, bodyLimit: 21 * 1024 * 1024, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) =>
+  app.post('/api/admin/modules/inspect', { ...admin, bodyLimit: 100 * 1024 * 1024, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) =>
     guard(reply, () => {
       if (!Buffer.isBuffer(req.body)) return bad(reply, 'zip_invalid');
+      if (req.body.length > getSetting(app.db, 'max_module_mb') * 1024 * 1024) return bad(reply, 'file_too_large', 413);
       return mods.stageZip(req.body);
     }));
 
@@ -66,9 +67,9 @@ export default async function moduleRoutes(app) {
     guard(reply, () => { mods.installBundled(req.params.id, req.user.id); return { module: mods.describe(mods.row(req.params.id)) }; }));
 
   app.post('/api/admin/modules/:id/enable', admin, async (req, reply) =>
-    guard(reply, () => { mods.setEnabled(req.params.id, true, req.user.id); return { module: mods.describe(mods.row(req.params.id)) }; }));
+    guard(reply, () => { if (mods.row(req.params.id) && !mods.row(req.params.id).enabled) app.config.autoBefore([`module:${req.params.id}:enabled`], req.user.id); mods.setEnabled(req.params.id, true, req.user.id); return { module: mods.describe(mods.row(req.params.id)) }; }));
   app.post('/api/admin/modules/:id/disable', admin, async (req, reply) =>
-    guard(reply, () => { mods.setEnabled(req.params.id, false, req.user.id); return { module: mods.describe(mods.row(req.params.id)) }; }));
+    guard(reply, () => { if (mods.row(req.params.id)?.enabled) app.config.autoBefore([`module:${req.params.id}:enabled`], req.user.id); mods.setEnabled(req.params.id, false, req.user.id); return { module: mods.describe(mods.row(req.params.id)) }; }));
   app.post('/api/admin/modules/:id/uninstall', admin, async (req, reply) =>
     guard(reply, () => { mods.uninstall(req.params.id, { deleteData: !!(req.body || {}).deleteData }, req.user.id); const r = mods.row(req.params.id); return { module: r && r.status !== 'removed' ? mods.describe(r) : null }; }));
   app.post('/api/admin/modules/:id/rollback', admin, async (req, reply) =>

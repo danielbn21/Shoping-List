@@ -9,6 +9,7 @@ import { compareVersions } from './semver.js';
 import { createEvents } from './events.js';
 import { makeCoreApi } from './coreApi.js';
 import { audit } from '../util.js';
+import { normalizeValue } from '../config.js';
 
 const IGNORE_TOP = new Set(['web', 'test', 'tests', 'node_modules', '.git']);
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
@@ -214,7 +215,11 @@ export function createModules(app, { bundledDir = null, moduleOptions = {}, core
       secrets: app.secrets,
       settings: {
         get: (k, fallback = null) => { const r = get.get(k); if (!r) return fallback; try { return JSON.parse(r.value); } catch { return fallback; } },
-        set: (k, v) => { put.run(k, JSON.stringify(v)); },
+        set: (k, v) => {
+          // a setting the manifest declares as configuration: take a checkpoint of the configuration first, if the value really changes
+          if (m.config?.[k]) { const cur = get.get(k); if (!cur || cur.value !== JSON.stringify(v)) app.config?.autoBefore([`module:${m.id}:${k}`], null, `module:${m.id}`); }
+          put.run(k, JSON.stringify(v));
+        },
       },
       routes: { get: verb('GET'), post: verb('POST'), put: verb('PUT'), patch: verb('PATCH'), delete: verb('DELETE') },
       events: { on: (name, fn) => events.on(name, fn, m.id) },
@@ -313,6 +318,29 @@ export function createModules(app, { bundledDir = null, moduleOptions = {}, core
     };
   }
 
+  // The module's declared configuration (manifest `config`): its definitions, its values now (null while the module is not running), and writing values.
+  function configDefs(id) { const r = row(id); const m = loaded.get(id)?.manifest ?? (r ? manifestOf(r) : null); return m?.config ?? {}; }
+  function readConfig(id) {
+    const l = loaded.get(id);
+    if (!l) return null;
+    const out = {};
+    for (const [k, def] of Object.entries(l.manifest.config ?? {})) {
+      let v = def.default;
+      const r = l.db.prepare('SELECT value FROM _settings WHERE key = ?').get(k);
+      if (r) { try { const n = normalizeValue(def, JSON.parse(r.value)); if (!n.error) v = n.value; } catch { /* keep the default */ } }
+      out[k] = v;
+    }
+    return out;
+  }
+  function writeConfig(id, values) {
+    const l = loaded.get(id);
+    if (!l) return;
+    for (const [k, v] of Object.entries(values)) {
+      const def = l.manifest.config?.[k];
+      if (def && !normalizeValue(def, v).error) l.db.prepare('INSERT INTO _settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, JSON.stringify(v));
+    }
+  }
+
   function setEnabled(id, on, actorId) {
     const r = row(id);
     if (!r || r.status === 'removed') throw coded('not_found');
@@ -403,7 +431,7 @@ export function createModules(app, { bundledDir = null, moduleOptions = {}, core
   return {
     events, core, load, rows, row, describe, loaded, providers, root,
     inspectFiles, installFiles, stageZip, installStaged, bundledAvailable, installBundled,
-    setEnabled, uninstall, rollback, setGranted, setUserOn, accessList, accessRow,
+    setEnabled, configDefs, readConfig, writeConfig, uninstall, rollback, setGranted, setUserOn, accessList, accessRow,
     available, enabledLive, payloadFor, providerFor, assetFor, languageCodes, isLanguage, assetAllowed,
     capabilityProviders: (capability) => providers.filter((p) => p.capability === capability).map((p) => p.moduleId),
   };

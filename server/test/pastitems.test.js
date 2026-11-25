@@ -112,9 +112,9 @@ test('existing lists keep their history when the database is upgraded (every ite
   await t.app.close();
   const Database = createRequire(new URL('../package.json', import.meta.url))('better-sqlite3');
   const d = new Database(path.join(dir, 'shoplist.db'));
-  d.exec('DROP TABLE list_items;'); d.pragma('user_version = 8'); d.close();          // what a 1.4.2 database looked like
+  d.exec('DROP TABLE list_items; DROP TABLE config_checkpoints;'); d.pragma('user_version = 8'); d.close();          // what a 1.4.2 database looked like (and before the 1.9.0 table)
   const t2 = await boot(dir);
-  assert.equal(t2.app.db.pragma('user_version', { simple: true }), 9);
+  assert.equal(t2.app.db.pragma('user_version', { simple: true }), 10);   // 9 from 1.4.3, 10 from 1.9.0
   const idOf = (name) => t2.app.db.prepare('SELECT id FROM lists WHERE name = ?').get(name).id;
   assert.deepEqual((await t2.past(idOf('A'))).sort(), ['Eggs', 'Milk']);
   assert.deepEqual(await t2.past(idOf('B')), ['Rice']);
