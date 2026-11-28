@@ -2,6 +2,35 @@ import { ApiError } from './api';
 
 const en = {
   appName: 'Shopping list',
+  // 1.9.2: one header and one menu structure on every screen
+  backGeneric: 'Back',
+  breadcrumb: 'You are here',
+  scopeMe: 'Me · {name}',
+  scopeList: 'List · {name}',
+  scopeHousehold: 'Household · {name}',
+  scopeServer: 'Server',
+  menuGroupHousehold: 'Household · {name} (all lists)',
+  menuGroupMe: 'Me',
+  menuGroupServer: 'Server (admins only)',
+  listNameColour: 'Name and colour',
+  peopleAccess: 'People and access',
+  itemsCsv: 'Items and CSV',
+  membersInvites: 'Members and invites',
+  exportPurchasesRow: 'Export purchases',
+  deleteListHelp: 'This removes the list and its history from everyone who uses it. Type the list name to confirm.',
+  typeListNameToConfirm: 'Type the list name',
+  settingsAccount: 'Account',
+  settingsPreferences: 'Preferences',
+  settingsModules: 'Modules',
+  openModeLabel: 'When I open a list',
+  openModeLast: 'Where I left off',
+  openModeShop: 'Always Shop',
+  openModeManage: 'Always Manage',
+  openModeHelp: 'A trip in progress (something already ticked) always opens in Shop.',
+  adminPeople: 'People',
+  adminServer: 'Server',
+  quickAdd: 'Add “{name}” to the list',
+  quickAdded: '“{name}” added.',
   modConfigure: 'Configure',
   // price estimates, multi-select (1.4.3)
   pastSelect: 'Select',
@@ -149,7 +178,7 @@ const en = {
   // nav
   navHome: 'Lists',
   navSettings: 'Settings',
-  navAdmin: 'Admin',
+  navAdmin: 'Administration',
 
   // home
   hello: 'Hi, {name}',

@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { api, ApiError } from './api';
-import { t, errText, getLang, isRtl } from './i18n';
+import { t, errText } from './i18n';
 import { LIST_COLORS, type Detail, type Entry, type Me } from './types';
 import ShopTab from './ShopTab';
 import ManageTab from './ManageTab';
 import HistoryTab from './HistoryTab';
-import TabMenu from './TabMenu';
-import Menu, { type MenuItem } from './Menu';
+import Menu from './Menu';
+import ScreenHeader from './ScreenHeader';
+import SideLayout, { type NavGroup } from './SideNav';
+import { flattenGroups } from './menus';
 import { useListPages } from './ListPages';
-import { useNarrow } from './util';
+import { useMedia } from './util';
 import { useSlots } from './slots';
 import { effectiveCurrency } from './money';
 import { uploadReceiptPhoto } from './imaging';
+import { go, goBack, replace, type Route } from './nav';
+import { getPrefs, openModeOf, rememberPlace } from './prefs';
 
 const ic = (d: ReactNode) => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{d}</svg>;
 const ICONS = {
@@ -19,25 +23,28 @@ const ICONS = {
   manage: ic(<><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></>),
   module: ic(<path d="M5 20V10M12 20V4M19 20v-7" />),
   history: ic(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>),
-  more: ic(<><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></>),
 };
 
-// A list: a slim header (back, name, burger menu), the screen of the open tab and, on a phone, the tabs as a bar at the bottom edge.
-export default function ListView({ listId, me, onBack, accountItems }: { listId: number; me: Me; onBack: () => void; accountItems: MenuItem[] }) {
+// A list: the shared header (back arrow, name, menu), the screen of the open tab and, on a phone, the tabs as a bar at the bottom edge.
+// The route says which tab or menu page is open, so the back gesture, the arrow and a refresh all work (1.9.2).
+export default function ListView({ listId, tab: routeTab, page: routePage, me, accountGroups }: { listId: number; tab?: string; page?: string; me: Me; accountGroups: NavGroup[] }) {
   const [data, setData] = useState<Detail | null>(null);
-  const [tab, setTab] = useState<string>('shop'); // opens straight into Shop mode
   const [error, setError] = useState('');
-  const [page, setPage] = useState<string | null>(null); // a page of the burger menu (name, people, stores ...) shown instead of the tabs
-  const narrow = useNarrow();
+  const sideBySide = useMedia('(min-width: 768px)');
   const moduleTabs = useSlots('list.tab', { me, data: data ?? undefined }); // tabs added by modules (for example Compare prices)
+  const home = () => replace({ k: 'home' });
 
   const load = useCallback(async () => {
     try { setData(await api<Detail>(`/lists/${listId}`)); }
-    catch (e) { if (e instanceof ApiError && e.status === 404) onBack(); }
-  }, [listId, onBack]);
+    catch (e) { if (e instanceof ApiError && e.status === 404) replace({ k: 'home' }); }
+  }, [listId]);
 
-  useEffect(() => { load(); }, [load]);
-  const pages = useListPages(data, me, load, onBack);
+  useEffect(() => { setData(null); load(); }, [load]);
+  useEffect(() => { rememberPlace(listId); }, [listId]);
+  // One module tab fits the bar next to Shop, Manage and History; a module's others open from the menu.
+  const tabModule = moduleTabs[0];
+  const extraTabs = moduleTabs.slice(1);
+  const pages = useListPages(data, me, load, home, extraTabs);
   // The tab bar steps aside while the on-screen keyboard is up (the visual viewport shrinks); wide screens and desktops never trigger it.
   useEffect(() => {
     const vv = window.visualViewport;
@@ -54,32 +61,51 @@ export default function ListView({ listId, me, onBack, accountItems }: { listId:
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', vis); };
   }, [load]);
 
-  if (!data) return <p className="muted">{t('loading')}</p>;
-  const { list } = data;
-  const isEditor = list.role !== 'viewer'; // "Shoppers" (viewer) only get the Shop tab
-  const color = LIST_COLORS[list.color] ?? LIST_COLORS.green;
+  const isEditor = data ? data.list.role !== 'viewer' : false; // "Shoppers" (viewer) only get the Shop tab (and History)
+  const tabModuleId = tabModule ? `${tabModule.moduleId}:${tabModule.id}` : null;
   type Tab = { id: string; label: string; short?: string; icon: ReactNode };
   const tabs: Tab[] = [
     { id: 'shop', label: t('tabShop'), icon: ICONS.shop },
     ...(isEditor ? [{ id: 'manage', label: t('tabManage'), short: t('tabManageShort'), icon: ICONS.manage }] : []),
-    ...moduleTabs.map((m) => ({ id: `${m.moduleId}:${m.id}`, label: m.title(), icon: ICONS.module })),
+    ...(tabModule ? [{ id: tabModuleId!, label: tabModule.title(), icon: ICONS.module }] : []),
     { id: 'history', label: t('tabHistory'), short: t('tabHistoryShort'), icon: ICONS.history },
   ];
-  // Four tabs fit the bar on a phone; with more, the first three stay and the rest go into "More".
-  const spill = narrow && tabs.length > 4;
-  const inline = spill ? tabs.slice(0, 3) : tabs;
-  const more = spill ? tabs.slice(3) : [];
-  const currentPage = page ? pages.find((p) => p.id === page) : undefined;
-  // Deleting a list asks first; the owner can also do it from the List name page.
-  const deleteList = async () => {
-    if (!confirm(t('confirmDeleteList', { name: list.name }))) return;
-    try { await api(`/lists/${list.id}`, { method: 'DELETE' }); onBack(); } catch (e) { setError(errText(e)); }
-  };
-  const menuItems: MenuItem[] = [
-    ...(pages.length ? [{ heading: t('menuThisList', { name: list.name }) } as MenuItem, ...pages.map((p): MenuItem => ({ label: p.title, hint: p.hint, count: p.count, onClick: () => setPage(p.id) }))] : []),
-    ...(list.role === 'owner' ? [{ label: t('deleteList'), danger: true, onClick: deleteList } as MenuItem] : []),
-    ...(accountItems.length ? [{ heading: me.name } as MenuItem, ...accountItems] : []),
+  const tabIds = tabs.map((x) => x.id);
+
+  // Which tab a list opens on when the address does not say: a trip in progress (something ticked) always Shop; otherwise the person's own
+  // setting: where they left off on this list (the default), always Shop, or always Manage.
+  const needsTab = !!data && !routeTab && !routePage;
+  useEffect(() => {
+    if (!data || !needsTab) return;
+    const inCart = data.entries.some((e) => e.state === 'in_cart');
+    const prefs = getPrefs();
+    const mode = openModeOf(prefs);
+    let pick = 'shop';
+    if (!inCart) {
+      if (mode === 'manage' && isEditor) pick = 'manage';
+      else if (mode === 'last') { const last = prefs.last?.tabs?.[String(listId)]; if (last && tabIds.includes(last)) pick = last; }
+    }
+    replace({ k: 'list', id: listId, tab: pick });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, needsTab, listId]);
+  // A menu page this person cannot open (a Shopper typing the address, a module switched off) goes back to the list.
+  const currentPage = routePage ? pages.find((p) => p.id === routePage) : undefined;
+  useEffect(() => { if (data && routePage && !currentPage && (pages.length || !isEditor)) replace({ k: 'list', id: listId }); }, [data, routePage, currentPage, pages.length, isEditor, listId]);
+
+  if (!data) return <p className="muted">{t('loading')}</p>;
+  const { list } = data;
+  const color = LIST_COLORS[list.color] ?? LIST_COLORS.green;
+  const tab = routeTab && tabIds.includes(routeTab) ? routeTab : 'shop';
+  const hhName = me.households.find((h) => h.id === list.householdId)?.name ?? '';
+  const openPage = (id: string) => go({ k: 'list', id: listId, page: id });
+  const toEntry = (p: { id: string; title: string; hint?: string; count?: number }) => ({ id: p.id, label: p.title, hint: p.hint, count: p.count, onClick: () => openPage(p.id) });
+  const groups: NavGroup[] = [
+    { id: 'list', heading: t('menuThisList', { name: list.name }), items: pages.filter((p) => p.group === 'list').map(toEntry) },
+    { id: 'household', heading: t('menuGroupHousehold', { name: hhName }), items: pages.filter((p) => p.group === 'household').map(toEntry) },
+    ...accountGroups,
   ];
+  const listRoute: Route = { k: 'list', id: listId };
+  const pickTab = (id: string) => { replace({ k: 'list', id: listId, tab: id }); rememberPlace(listId, id); };
 
   // Optimistic check/uncheck so taps feel instant; rolled back if the server refuses.
   const toggle = async (e: Entry, checked: boolean) => {
@@ -108,34 +134,37 @@ export default function ListView({ listId, me, onBack, accountItems }: { listId:
     return { ...r, receipt };
   };
 
+  const menu = <Menu items={flattenGroups(groups, currentPage?.id)} />;
+  const pageBody = currentPage && (
+    sideBySide
+      ? <SideLayout groups={groups} current={currentPage.id} label={t('menu')}><div className="stack-sm" key={currentPage.id}>{currentPage.node}</div></SideLayout>
+      : <div className="stack-sm" key={currentPage.id}>{currentPage.node}</div>
+  );
+
   return (
     <div className="stack">
-      <div className="listhead">
-        <button className="iconbtn" onClick={currentPage ? () => setPage(null) : onBack} aria-label={currentPage ? t('backTo', { name: list.name }) : t('back')} title={currentPage ? t('backTo', { name: list.name }) : t('back')}>{isRtl() ? '→' : '←'}</button>
-        {currentPage
-          ? <div className="grow"><h1 dir="auto">{currentPage.title}</h1><span className="muted" dir="auto">{list.name}</span></div>
-          : <h1 dir="auto" style={{ borderBottom: `5px solid ${color}`, paddingBottom: 4 }}>{list.name}</h1>}
-        {!currentPage && <Menu items={menuItems} />}
-      </div>
+      {currentPage
+        ? <ScreenHeader title={currentPage.title} scope={t('scopeList', { name: list.name })} onBack={() => goBack(listRoute)} backLabel={t('backTo', { name: list.name })}
+            crumbs={[{ label: t('navHome'), onClick: () => go({ k: 'home' }) }, { label: list.name, onClick: () => go(listRoute) }, { label: currentPage.title }]} right={menu} />
+        : <ScreenHeader title={list.name} color={color} onBack={() => goBack({ k: 'home' })} crumbs={[{ label: t('navHome'), onClick: () => go({ k: 'home' }) }, { label: list.name }]} right={menu} />}
 
       {error && <p className="error" role="alert">{error}</p>}
 
-      {currentPage ? <div className="stack-sm" key={currentPage.id}>{currentPage.node}</div> : (
+      {currentPage ? pageBody : needsTab ? <p className="muted">{t('loading')}</p> : (
         <>
           {tab === 'shop' && <ShopTab data={data} me={me} reload={load} onToggle={toggle} onFinish={finish} />}
           {isEditor && tab === 'manage' && <ManageTab data={data} me={me} reload={load} />}
-          {moduleTabs.map((m) => tab === `${m.moduleId}:${m.id}` && <m.component key={`${m.moduleId}:${m.id}`} data={data} me={me} reload={load} />)}
+          {tabModule && tab === tabModuleId && <tabModule.component key={tabModuleId} data={data} me={me} reload={load} />}
           {tab === 'history' && <HistoryTab data={data} me={me} reload={load} />}
 
           <nav className="tabs" aria-label={t('tabsLabel')}>
-            {inline.map((i) => (
-              <button key={i.id} aria-pressed={tab === i.id} aria-label={i.label} onClick={() => setTab(i.id)}>
+            {tabs.map((i) => (
+              <button key={i.id} aria-pressed={tab === i.id} aria-label={i.label} onClick={() => pickTab(i.id)}>
                 <span className="ico">{i.icon}</span>
                 <span className="lbl-full" aria-hidden="true">{i.label}</span>
                 <span className="lbl-short" aria-hidden="true">{i.short ?? i.label}</span>
               </button>
             ))}
-            {more.length > 0 && <TabMenu items={more.map((i) => ({ id: i.id, label: i.label }))} current={tab} onPick={(id) => setTab(id)} />}
           </nav>
         </>
       )}

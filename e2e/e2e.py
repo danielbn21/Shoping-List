@@ -14,18 +14,19 @@ errors = []
 
 
 def menu_go(page, name, menu="Menu"):
-    """The burger menu (\u2630) of whatever screen is open: Settings, Admin, Lists, Sign out, or a page of the open list."""
+    """The burger menu (\u2630) of whatever screen is open: Settings, Administration, Sign out, or a page of the open list.
+    Since 1.9.2 there is no 'Lists' entry (every screen has a back arrow; 'Lists' and its Hebrew name go Home) and two entries were renamed."""
+    if name in ("Lists", "\u05e8\u05e9\u05d9\u05de\u05d5\u05ea"):
+        return to_lists(page)
+    name = {"Admin": "Administration", "Backup and move items": "Items and CSV"}.get(name, name)
     page.get_by_role("button", name=menu, exact=True).click()
     page.get_by_role("menuitem", name=name).click()
 
 
 def to_lists(page):
-    """Back to the list of lists: the arrow inside a list, the burger menu on the Settings and Admin screens."""
-    back = page.get_by_role("button", name="All lists")
-    if back.count():
-        back.click()
-    else:
-        menu_go(page, "Lists")
+    """Back to the list of lists. Every screen has a back arrow now, but where it leads depends on where you came from, so go by address."""
+    page.evaluate("location.hash = '#/'")
+    page.wait_for_selector(".list-card, .hh")
 
 
 def tab(page, name):
@@ -82,6 +83,10 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Create admin account").click()
     page.wait_for_selector("text=No lists yet")
     check("setup lands on empty lists screen", True)
+    # This suite predates 1.9.2's default ("where I left off"). It was written for lists that open on Shop, so pin that here;
+    # the remembered page itself is tested in e2e_nav192.py.
+    page.evaluate("fetch('/api/me/prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-SL-Client': 'web' }, body: JSON.stringify({ openMode: 'shop' }) })")
+    page.wait_for_timeout(400); page.reload(); page.wait_for_selector("text=No lists yet")
 
     # ---- create a list ----
     page.get_by_role("button", name="New list").click()
@@ -463,7 +468,7 @@ with sync_playwright() as p:
     check("a priced line shows the product name and can be changed", card.get_by_role("button", name="Change").count() >= 1 and "\u05e9\u05e2\u05d5\u05e2\u05d9\u05ea" in card.inner_text())
     page.get_by_role("button", name="Compare now").click()
     page.wait_for_function("/already up to date|could not be read|Done\\./.test(document.querySelector('main').innerText)", timeout=15000)
-    check("Compare now reports what it did (done, already up to date, or which branches could not be read)", page.get_by_role("button", name="Compare now").count() == 1 and "Refresh prices" not in page.locator("main").inner_text())
+    check("Compare now reports what it did (done, already up to date, or which branches could not be read)", page.get_by_role("button", name="Compare now").count() == 1 and "Refresh prices" not in page.locator("main").inner_text(), f"buttons={page.get_by_role('button', name='Compare now').count()} main={page.locator('main').inner_text()[:400]!r}")
 
 
     # ---- 1.4.2: Add items offers the products of the chosen branches while typing ----
@@ -559,7 +564,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(600)
     check("Use the default switches it back on", page.locator("section.card", has=page.locator("h2:text-is('Price estimates')")).get_by_label("Show price estimates in the Shop tab").is_checked())
     menu_go(page, "Admin")
-    page.get_by_role("button", name="Server settings", exact=True).click()
+    page.evaluate("location.hash = '#/admin/server/settings'")
     page.get_by_label("Show price estimates in the Shop tab by default", exact=False).wait_for()
     check("the admin sets the default for everyone", page.get_by_label("Show price estimates in the Shop tab by default", exact=False).count() == 1)
     list_tab("Manage list")
@@ -589,11 +594,11 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Done").click()
 
     page.get_by_role("button", name="Menu: Cabin").click()
-    page.get_by_role("menuitem", name="Manage household").click()
-    page.wait_for_selector("h1:text-is('Cabin')")
+    page.get_by_role("menuitem", name="Members and invites").click()
+    page.wait_for_selector(".screenhead .scope:text-is('Household · Cabin')")
     page.get_by_label("Household name").first.fill("Lake Cabin")
     page.get_by_role("button", name="Save", exact=True).click()
-    page.wait_for_selector("h1:text-is('Lake Cabin')")
+    page.wait_for_selector(".screenhead .scope:text-is('Household · Lake Cabin')")
     check("household can be renamed", True)
     page.get_by_placeholder("Username").fill("nobody")
     page.get_by_role("button", name="Add member").click()

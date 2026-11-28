@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
-import { t, errText, getLang, isRtl } from './i18n';
+import { t, errText, getLang } from './i18n';
 import type { Me } from './types';
+import ScreenHeader from './ScreenHeader';
+import Menu from './Menu';
+import { flattenGroups } from './menus';
+import type { NavGroup } from './SideNav';
+import { go, goBack, replace } from './nav';
 
 type Member = { id: number; name: string; username: string; role: 'owner' | 'member' };
 type Invite = { id: number; code: string; maxUses: number | null; uses: number };
 
-export default function HouseholdScreen({ me, hid, onBack, onChanged }: { me: Me; hid: number; onBack: () => void; onChanged: () => void }) {
+// The household's own pages. "members": its name, members, invites, leaving and deleting. "export": the purchase history as CSV.
+// Drawn inside a list's pages (Household group of its menu) and on their own from Home.
+export function HouseholdPage({ me, hid, part, onGone, onChanged }: { me: Me; hid: number; part: 'members' | 'export'; onGone: () => void; onChanged: () => void }) {
+  const onBack = onGone;
   const h = me.households.find((x) => x.id === hid);
   const owner = h?.role === 'owner' || me.role === 'admin';
   const [name, setName] = useState(h?.name ?? '');
@@ -46,13 +54,9 @@ export default function HouseholdScreen({ me, hid, onBack, onChanged }: { me: Me
 
   return (
     <div className="stack">
-      <div className="listhead">
-        <button className="iconbtn" onClick={onBack} aria-label={t('back')} title={t('back')}>{isRtl() ? '→' : '←'}</button>
-        <h1 dir="auto">{h.name}</h1>
-      </div>
       {error && <p className="error" role="alert">{error}</p>}
 
-      {owner && (
+      {part === 'members' && owner && (
         <form className="card stack-sm" onSubmit={rename}>
           <h2>{t('householdNameLabel')}</h2>
           <div className="inline-form">
@@ -63,7 +67,7 @@ export default function HouseholdScreen({ me, hid, onBack, onChanged }: { me: Me
         </form>
       )}
 
-      <section className="card stack-sm">
+      {part === 'members' && <section className="card stack-sm">
         <h2>{t('members')}</h2>
         {members.map((m) => (
           <div className="row between" key={m.id} style={{ flexWrap: 'nowrap' }}>
@@ -93,9 +97,9 @@ export default function HouseholdScreen({ me, hid, onBack, onChanged }: { me: Me
             </div>
           </form>
         )}
-      </section>
+      </section>}
 
-      {owner && (
+      {part === 'members' && owner && (
         <section className="card stack-sm">
           <div><h2>{t('inviteSection')}</h2><p className="muted">{t('inviteSectionHelp')}</p></div>
           <div><button className="btn" onClick={makeInvite}>{t('createInvite')}</button></div>
@@ -123,16 +127,16 @@ export default function HouseholdScreen({ me, hid, onBack, onChanged }: { me: Me
         </section>
       )}
 
-      <section className="card stack-sm">
+      {part === 'export' && <section className="card stack-sm">
         <h2>{t('exportPurchases')}</h2>
         <div className="row">
           <label className="field grow"><span>{t('dateFrom')}</span><input type="date" dir="ltr" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
           <label className="field grow"><span>{t('dateTo')}</span><input type="date" dir="ltr" value={to} onChange={(e) => setTo(e.target.value)} /></label>
         </div>
         <div><a className="btn small primary" download href={`/api/households/${hid}/purchases.csv?lang=${getLang()}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`}>{t('exportPurchases')}</a></div>
-      </section>
+      </section>}
 
-      <section className="card stack-sm">
+      {part === 'members' && <section className="card stack-sm">
         <div><button className="btn danger" onClick={() => { if (confirm(t('confirmLeave', { name: h.name }))) run(() => api(`/households/${hid}/leave`, { method: 'POST' }), onBack, true); }}>{t('leaveHousehold')}</button></div>
         {owner && (
           <details>
@@ -144,7 +148,28 @@ export default function HouseholdScreen({ me, hid, onBack, onChanged }: { me: Me
             </div>
           </details>
         )}
-      </section>
+      </section>}
+    </div>
+  );
+}
+
+// A household page on its own (opened from Home): the shared header with the arrow, then the page.
+export default function HouseholdScreen({ me, hid, part, accountGroups, onChanged }: { me: Me; hid: number; part: 'members' | 'export'; accountGroups: NavGroup[]; onChanged: () => void }) {
+  const h = me.households.find((x) => x.id === hid);
+  const home = () => replace({ k: 'home' });
+  const groups: NavGroup[] = [
+    { id: 'household', heading: h ? t('menuGroupHousehold', { name: h.name }) : undefined, items: [
+      { id: 'members', label: t('membersInvites'), onClick: () => go({ k: 'household', hid, part: 'members' }) },
+      { id: 'export', label: t('exportPurchasesRow'), onClick: () => go({ k: 'household', hid, part: 'export' }) },
+    ] },
+    ...accountGroups,
+  ];
+  return (
+    <div className="stack">
+      <ScreenHeader title={part === 'members' ? t('membersInvites') : t('exportPurchasesRow')} scope={t('scopeHousehold', { name: h?.name ?? '' })} onBack={() => goBack({ k: 'home' })} backLabel={t('backGeneric')}
+        crumbs={[{ label: t('navHome'), onClick: () => go({ k: 'home' }) }, { label: h?.name ?? '' }, { label: part === 'members' ? t('membersInvites') : t('exportPurchasesRow') }]}
+        right={<Menu items={flattenGroups(groups, part)} />} />
+      <HouseholdPage me={me} hid={hid} part={part} onGone={home} onChanged={onChanged} />
     </div>
   );
 }

@@ -154,7 +154,8 @@ export default async function authRoutes(app) {
   // ---- profile ----
   app.get('/api/me', { preHandler: app.auth({ allowPending: true }) }, async (req) => ({ user: app.userPayload(req.user) }));
 
-  // Interface preferences that follow the user across devices: the order of the Manage list sections and which are left open.
+  // Interface preferences that follow the user across devices: price estimates, where a list opens and where the person left off (1.9.2).
+  // manageOrder and manageOpen are still accepted so an older browser keeps working; the 1.9.2 web app no longer uses them.
   // Send only the keys to change; null removes a key.
   const KEY = /^[A-Za-z0-9_.:-]{1,80}$/;
   app.put('/api/me/prefs', { preHandler: app.auth() }, async (req, reply) => {
@@ -174,6 +175,26 @@ export default async function authRoutes(app) {
       if (b.manageOpen === null) delete cur.manageOpen;
       else if (typeof b.manageOpen !== 'object' || Array.isArray(b.manageOpen) || Object.keys(b.manageOpen).length > 60 || Object.entries(b.manageOpen).some(([k, v]) => !KEY.test(k) || typeof v !== 'boolean')) return bad(reply, 'invalid_value');
       else cur.manageOpen = { ...(cur.manageOpen || {}), ...b.manageOpen };
+    }
+    // 1.9.2: where a list opens ('last' = where the person left off, 'shop', 'manage') and where they left off: the last list and the last tab of each list.
+    if (b.openMode !== undefined) {
+      if (b.openMode === null) delete cur.openMode;
+      else if (!['last', 'shop', 'manage'].includes(b.openMode)) return bad(reply, 'invalid_value');
+      else cur.openMode = b.openMode;
+    }
+    if (b.last !== undefined) {
+      if (b.last === null) delete cur.last;
+      else {
+        const l = b.last;
+        const okTabs = l && typeof l === 'object' && !Array.isArray(l) && l.tabs && typeof l.tabs === 'object' && !Array.isArray(l.tabs);
+        if (!okTabs || !Number.isInteger(l.list) || l.list < 1 || Object.keys(l.tabs).length > 60
+          || Object.entries(l.tabs).some(([k, v]) => !/^\d{1,12}$/.test(k) || typeof v !== 'string' || !KEY.test(v))) return bad(reply, 'invalid_value');
+        // Keep the newest 40 lists' tabs; the one being sent wins.
+        const tabs = { ...(cur.last?.tabs || {}), ...l.tabs };
+        const keys = Object.keys(tabs);
+        for (const k of keys.slice(0, Math.max(0, keys.length - 40))) delete tabs[k];
+        cur.last = { list: l.list, tabs };
+      }
     }
     db.prepare('UPDATE users SET ui_prefs = ? WHERE id = ?').run(JSON.stringify(cur), req.user.id);
     return { user: app.userPayload(db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id)) };

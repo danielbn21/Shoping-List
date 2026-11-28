@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from './api';
+import { api, ApiError } from './api';
 import { t, errText } from './i18n';
 import { effectiveCurrency, formatMoney } from './money';
 import { catName, fmt } from './util';
@@ -24,6 +24,7 @@ export default function ShopTab({ data, me, reload, onToggle, onFinish }: Props)
   const [photo, setPhoto] = useState<File | null>(null);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+  const [similar, setSimilar] = useState<{ id: number; name: string }[] | null>(null);
 
   // Price estimates (when switched on in Settings): the last price paid for each item at the chosen store, or anywhere without one.
   const [est, setEst] = useState<Record<number, { unitPrice: number; source: string }>>({});
@@ -40,6 +41,24 @@ export default function ShopTab({ data, me, reload, onToggle, onFinish }: Props)
   const store = stores.find((s) => String(s.id) === storeId);
   const q = search.trim().toLowerCase();
   const match = (e: Entry) => !q || e.name.toLowerCase().includes(q) || (e.note ?? '').toLowerCase().includes(q);
+
+  // Quick add (1.9.2): a search that finds nothing offers to add the words as an item, so someone who remembers one more thing stays in Shop.
+  // A Shopper (no Manage access) does not get it. A near-miss ("did you mean ...") is asked here the same way as in Manage.
+  const canAdd = list.role !== 'viewer';
+  const typed = search.trim();
+  const exists = entries.some((e) => e.name.trim().toLowerCase() === typed.toLowerCase());
+  useEffect(() => { setSimilar(null); }, [typed]);
+  const quickAdd = async (extra: Record<string, unknown>, name: string) => {
+    setError('');
+    try {
+      await api(`/lists/${list.id}/entries`, { method: 'POST', body: { quantity: 1, ...extra } });
+      setSearch(''); setSimilar(null); await reload();
+      setMsg(t('quickAdded', { name })); setTimeout(() => setMsg(''), 5000);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'similar_items') setSimilar(e.body?.matches ?? []);
+      else setError(errText(e));
+    }
+  };
 
   const open = entries.filter((e) => e.state === 'open');
   const cart = entries.filter((e) => e.state === 'in_cart');
@@ -104,6 +123,18 @@ export default function ShopTab({ data, me, reload, onToggle, onFinish }: Props)
       {msg && <p className="ok" role="status">{msg}</p>}
       {error && <p className="error" role="alert">{error}</p>}
 
+      {canAdd && typed && !exists && (similar ? (
+        <div className="suggest" role="alert">
+          <p style={{ fontWeight: 700 }}>{t('didYouMean')}</p>
+          {similar.map((m) => <button type="button" className="similar" key={m.id} onClick={() => quickAdd({ itemId: m.id, source: 'typeahead' }, m.name)} dir="auto">{m.name}</button>)}
+          <button type="button" className="new" onClick={() => quickAdd({ name: typed, force: true }, typed)}>{t('addAsNew', { name: typed })}</button>
+        </div>
+      ) : (
+        <button type="button" className="quickadd" onClick={() => quickAdd({ name: typed }, typed)}>
+          <span aria-hidden="true">＋</span><span className="grow" dir="auto">{t('quickAdd', { name: typed })}</span>
+        </button>
+      ))}
+
       {me.estimatesEnabled && entries.length > 0 && Object.keys(est).length > 0 && (() => {
         const on = entries;
         const priced = on.filter((e) => est[e.itemId]);
@@ -111,7 +142,7 @@ export default function ShopTab({ data, me, reload, onToggle, onFinish }: Props)
         return <p className="est-total" role="status">{t('estimateTotal', { total: formatMoney(total, currency) })} <span className="muted" style={{ fontWeight: 400 }}>· {t('estimateCoverage', { priced: priced.length, n: on.length })}</span></p>;
       })()}
       {entries.length === 0 && <p className="muted">{t('emptyShop')}</p>}
-      {entries.length > 0 && q && !groups.length && !shownCart.length && <p className="muted">{t('noMatches', { q: search.trim() })}</p>}
+      {entries.length > 0 && q && !groups.length && !shownCart.length && !(canAdd && !exists) && <p className="muted">{t('noMatches', { q: search.trim() })}</p>}
       {open.length === 0 && cart.length > 0 && !q && <p className="muted">{t('allChecked')}</p>}
 
       {groups.map((g) => (

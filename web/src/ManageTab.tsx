@@ -7,9 +7,9 @@ import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-ki
 import { api, ApiError } from './api';
 import { t, errText, getLang, timeAgo } from './i18n';
 import { formatMoney } from './money';
-import { catName, fmt } from './util';
+import { catName, fmt, useMedia } from './util';
 import { SortableList, SortableRow, useDndSensors } from './dnd';
-import type { Cat, CatalogSuggestion, Detail, Entry, Me, PastItem, Store } from './types';
+import { LIST_COLORS, type Cat, type CatalogSuggestion, type Detail, type Entry, type Me, type PastItem, type Store } from './types';
 import { useSlots } from './slots';
 import { CategoryInput, resolveCategoryId, categoryText, useCategoryText } from './CategoryInput';
 
@@ -23,18 +23,28 @@ function ManageToolbar({ data, me, reload }: { data: Detail; me: Me; reload: () 
 }
 
 export default function ManageTab({ data, me, reload }: Props) {
-  // Adding comes first; below it one switch between the items this list has had and what is on it now. The rarely used parts of managing a
-  // list (name, people, stores, categories, backup, module settings) are in the list's burger menu (see ListPages.tsx).
+  // Adding comes first. Below it, on a phone, one switch between the items this list has had and what is on it now; from about 900 px both
+  // are shown side by side. The rarely used parts of managing a list are in the list's menu (see ListPages.tsx).
   const [view, setView] = useState<'past' | 'onlist'>('past');
+  const wide = useMedia('(min-width: 900px)');
   const toBuy = data.entries.filter((e) => e.state === 'open').length;
   return (
     <div className="stack">
       <AddItem data={data} me={me} reload={reload} />
-      <div className="seg" role="group" aria-label={t('manageView')}>
-        <button type="button" aria-pressed={view === 'past'} onClick={() => setView('past')}>{t('viewPast')}</button>
-        <button type="button" aria-pressed={view === 'onlist'} onClick={() => setView('onlist')}>{t('viewOnList', { n: toBuy })}</button>
-      </div>
-      {view === 'past' ? <PastItems data={data} reload={reload} /> : <OnThisList data={data} reload={reload} />}
+      {wide ? (
+        <div className="manage-cols">
+          <section className="stack-sm"><h2>{t('viewPast')}</h2><PastItems data={data} reload={reload} /></section>
+          <section className="stack-sm"><h2>{t('viewOnList', { n: toBuy })}</h2><OnThisList data={data} reload={reload} /></section>
+        </div>
+      ) : (
+        <>
+          <div className="seg" role="group" aria-label={t('manageView')}>
+            <button type="button" aria-pressed={view === 'past'} onClick={() => setView('past')}>{t('viewPast')}</button>
+            <button type="button" aria-pressed={view === 'onlist'} onClick={() => setView('onlist')}>{t('viewOnList', { n: toBuy })}</button>
+          </div>
+          {view === 'past' ? <PastItems data={data} reload={reload} /> : <OnThisList data={data} reload={reload} />}
+        </>
+      )}
     </div>
   );
 }
@@ -662,23 +672,37 @@ export function ListSettings({ data, reload, onDeleted }: { data: Detail; reload
   const [name, setName] = useState(data.list.name);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [typed, setTyped] = useState('');
+  const save = async (body: Record<string, unknown>) => {
+    setError(''); setSaved(false);
+    try { await api(`/lists/${data.list.id}`, { method: 'PATCH', body }); await reload(); setSaved(true); } catch (err) { setError(errText(err)); }
+  };
   return (
     <>
-      <form className="inline-form" onSubmit={async (e) => {
-        e.preventDefault(); setError(''); setSaved(false);
-        try { await api(`/lists/${data.list.id}`, { method: 'PATCH', body: { name } }); await reload(); setSaved(true); } catch (err) { setError(errText(err)); }
-      }}>
+      <form className="inline-form" onSubmit={(e) => { e.preventDefault(); save({ name }); }}>
         <input type="text" dir="auto" value={name} onChange={(e) => setName(e.target.value)} aria-label={t('listNameLabel')} required />
         <button className="btn small" type="submit">{t('saveName')}</button>
       </form>
+      <div className="field"><span>{t('listColor')}</span>
+        <div className="swatches">
+          {Object.entries(LIST_COLORS).map(([k, hex]) => (
+            <button type="button" key={k} className="swatch" aria-label={k} aria-pressed={data.list.color === k} style={{ ['--c' as string]: hex }} onClick={() => save({ color: k })} />
+          ))}
+        </div>
+      </div>
+      <p className="muted">{t('shareWith')}: {data.list.visibility === 'private' ? t('visPrivate') : t('visHousehold')}</p>
       {saved && <p className="ok" role="status">{t('saved')}</p>}
       {error && <p className="error" role="alert">{error}</p>}
-      <div>
-        <button className="btn danger small" onClick={async () => {
-          if (!confirm(t('confirmDeleteList', { name: data.list.name }))) return;
-          try { await api(`/lists/${data.list.id}`, { method: 'DELETE' }); onDeleted(); } catch (err) { setError(errText(err)); }
-        }}>{t('deleteList')}</button>
-      </div>
+      <details>
+        <summary style={{ fontWeight: 700, cursor: 'pointer', minHeight: 36 }}>{t('deleteList')}</summary>
+        <div className="stack-sm" style={{ marginTop: 8 }}>
+          <p className="muted">{t('deleteListHelp')}</p>
+          <input type="text" dir="auto" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={t('typeListNameToConfirm')} aria-label={t('typeListNameToConfirm')} />
+          <div><button className="btn danger" disabled={typed.trim() !== data.list.name.trim()} onClick={async () => {
+            try { await api(`/lists/${data.list.id}`, { method: 'DELETE' }); onDeleted(); } catch (err) { setError(errText(err)); }
+          }}>{t('deleteList')}</button></div>
+        </div>
+      </details>
     </>
   );
 }

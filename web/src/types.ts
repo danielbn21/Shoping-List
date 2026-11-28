@@ -12,7 +12,7 @@ export type Me = {
   mustChangePassword: boolean; households: Household[]; canCreateHousehold: boolean;
   currency: string | null;
   currencyDefault?: string;
-  prefs: { manageOrder?: string[]; manageOpen?: Record<string, boolean>; showEstimates?: boolean };
+  prefs: { showEstimates?: boolean; openMode?: 'last' | 'shop' | 'manage'; last?: { list: number; tabs: Record<string, string> } };
   estimatesEnabled: boolean;   // price estimates in the Shop tab: the user's own choice, else the admin's default
   estimatesDefault: boolean;   // interface preferences that follow the user
   modules: MeModule[];       // the modules this user may use (granted by the admin), each with the user's own on/off switch

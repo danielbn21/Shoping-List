@@ -14,7 +14,7 @@ export default function Menu({ label, items, icon }: { label?: string; items: Me
   useEffect(() => {
     if (!open) return;
     const away = (e: Event) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); setOpen(false); } };   // handled: the screen's own Esc (back) must not also fire
     document.addEventListener('pointerdown', away);
     document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };

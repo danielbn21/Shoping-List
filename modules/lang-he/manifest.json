@@ -1,7 +1,7 @@
 {
   "id": "lang-he",
   "name": "Hebrew (עברית)",
-  "version": "1.3.6",
+  "version": "1.3.7",
   "kind": "language",
   "description": "Hebrew interface text and right-to-left layout.",
   "author": "Shopping list",

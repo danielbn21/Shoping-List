@@ -1,14 +1,25 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { api } from './api';
 import ModulesUser from './ModulesUser';
 import { ModuleSettingsSections } from './ModuleSections';
+import ScreenHeader from './ScreenHeader';
+import SideLayout, { type NavGroup } from './SideNav';
+import Menu from './Menu';
+import { flattenGroups } from './menus';
+import { go, goBack, replace } from './nav';
+import { openModeOf } from './prefs';
+import { useMedia } from './util';
 import { t, errText, timeAgo, availableLanguages } from './i18n';
 import { CURRENCIES, currencyName, detectCurrency } from './money';
 import type { Cfg, Me } from './types';
 
 type Device = { id: number; label: string; lastSeenAt: number; current: boolean };
 
-export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg: Cfg; onChange: () => void; onLogout: () => void }) {
+type Section = 'account' | 'preferences' | 'modules';
+
+// Settings (Me): three labeled sections. On a phone they are stacked under their headings; from 768 px a sidebar picks one (1.9.2).
+export default function Settings({ me, cfg, onChange, accountGroups, section }: { me: Me; cfg: Cfg; onChange: () => void; accountGroups: NavGroup[]; section?: string }) {
+  const sideBySide = useMedia('(min-width: 768px)');
   const [name, setName] = useState(me.name);
   const [email, setEmail] = useState(me.email ?? '');
   const [msg, setMsg] = useState('');
@@ -29,6 +40,11 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
     try { await api('/me', { method: 'PATCH', body }); await onChange(); setMsg(t('saved')); }
     catch (e) { setError(errText(e)); }
   };
+  const savePref = async (body: Record<string, unknown>) => {
+    setError(''); setMsg('');
+    try { await api('/me/prefs', { method: 'PUT', body }); await onChange(); setMsg(t('saved')); }
+    catch (e) { setError(errText(e)); }
+  };
   const saveProfile = (e: FormEvent) => { e.preventDefault(); patch({ name, email }); };
 
   const changePw = async (e: FormEvent) => {
@@ -41,10 +57,8 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
 
   const revoke = async (id: number) => { await api(`/devices/${id}`, { method: 'DELETE' }); loadDevices(); };
 
-  return (
-    <div className="stack">
-      <h1>{t('navSettings')}</h1>
-
+  const account = (
+    <>
       <form className="card stack" onSubmit={saveProfile}>
         <h2>{t('profile')}</h2>
         <label className="field"><span>{t('name')}</span>
@@ -58,6 +72,36 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
         </div>
       </form>
 
+      <form className="card stack" onSubmit={changePw}>
+        <div><h2>{t('changePassword')}</h2><p className="muted">{t('otherDevicesNote')}</p></div>
+        <label className="field"><span>{t('currentPassword')}</span>
+          <input type="password" dir="ltr" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} required /></label>
+        <label className="field"><span>{t('newPassword')}</span>
+          <input type="password" dir="ltr" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required /></label>
+        <div className="row">
+          <button className="btn primary" type="submit">{t('changePassword')}</button>
+          {pwMsg && <span className="ok" role="status">{pwMsg}</span>}
+          {pwErr && <span className="error" role="alert">{pwErr}</span>}
+        </div>
+      </form>
+
+      <section className="card stack-sm">
+        <h2>{t('devices')}</h2>
+        {devices.map((d) => (
+          <div className="row between" key={d.id}>
+            <div className="grow">
+              <strong>{d.label}</strong>{d.current && <span className="chip" style={{ marginInlineStart: 8 }}>{t('thisDevice')}</span>}
+              <div className="muted">{t('lastActive', { when: timeAgo(d.lastSeenAt) })}</div>
+            </div>
+            {!d.current && <button className="btn small danger" onClick={() => revoke(d.id)}>{t('signOutDevice')}</button>}
+          </div>
+        ))}
+      </section>
+    </>
+  );
+
+  const preferences = (
+    <>
       <section className="card stack">
         <label className="field"><span>{t('language')}</span>
           <select value={me.language} onChange={(e) => patch({ language: e.target.value })}>
@@ -75,42 +119,42 @@ export default function Settings({ me, cfg, onChange, onLogout }: { me: Me; cfg:
             {CURRENCIES.map((c) => <option key={c} value={c}>{c} · {currencyName(c)}</option>)}
           </select>
           <span className="muted" style={{ fontWeight: 400 }}>{t('currencyHelp')}</span></label>
+        <label className="field"><span>{t('openModeLabel')}</span>
+          <select value={openModeOf(me.prefs)} onChange={(e) => savePref({ openMode: e.target.value })}>
+            <option value="last">{t('openModeLast')}</option>
+            <option value="shop">{t('openModeShop')}</option>
+            <option value="manage">{t('openModeManage')}</option>
+          </select>
+          <span className="muted" style={{ fontWeight: 400 }}>{t('openModeHelp')}</span></label>
         <label className="check"><input type="checkbox" checked={me.showAddedBy} onChange={(e) => patch({ showAddedBy: e.target.checked })} /><span>{t('showAddedBy')}</span></label>
       </section>
-
-      <form className="card stack" onSubmit={changePw}>
-        <div><h2>{t('changePassword')}</h2><p className="muted">{t('otherDevicesNote')}</p></div>
-        <label className="field"><span>{t('currentPassword')}</span>
-          <input type="password" dir="ltr" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} required /></label>
-        <label className="field"><span>{t('newPassword')}</span>
-          <input type="password" dir="ltr" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required /></label>
-        <div className="row">
-          <button className="btn primary" type="submit">{t('changePassword')}</button>
-          {pwMsg && <span className="ok" role="status">{pwMsg}</span>}
-          {pwErr && <span className="error" role="alert">{pwErr}</span>}
-        </div>
-      </form>
-
       <EstimatesSetting me={me} onChange={onChange} />
+    </>
+  );
 
+  const modules = (
+    <>
       <ModuleSettingsSections me={me} onChange={onChange} />
-
       <ModulesUser me={me} onChange={onChange} />
+    </>
+  );
 
-      <section className="card stack-sm">
-        <h2>{t('devices')}</h2>
-        {devices.map((d) => (
-          <div className="row between" key={d.id}>
-            <div className="grow">
-              <strong>{d.label}</strong>{d.current && <span className="chip" style={{ marginInlineStart: 8 }}>{t('thisDevice')}</span>}
-              <div className="muted">{t('lastActive', { when: timeAgo(d.lastSeenAt) })}</div>
-            </div>
-            {!d.current && <button className="btn small danger" onClick={() => revoke(d.id)}>{t('signOutDevice')}</button>}
-          </div>
-        ))}
-      </section>
+  const parts: { id: Section; label: string; node: ReactNode }[] = [
+    { id: 'account', label: t('settingsAccount'), node: account },
+    { id: 'preferences', label: t('settingsPreferences'), node: preferences },
+    { id: 'modules', label: t('settingsModules'), node: modules },
+  ];
+  const active: Section = (parts.find((p) => p.id === section)?.id ?? 'account');
+  const groups: NavGroup[] = [{ id: 'settings', items: parts.map((p) => ({ id: p.id, label: p.label, onClick: () => replace({ k: 'settings', section: p.id }) })) }];
 
-      <div><button className="btn" onClick={onLogout}>{t('signOut')}</button></div>
+  return (
+    <div className="stack">
+      <ScreenHeader title={t('navSettings')} scope={t('scopeMe', { name: me.name })} onBack={() => goBack({ k: 'home' })} backLabel={t('backGeneric')}
+        crumbs={[{ label: t('navHome'), onClick: () => go({ k: 'home' }) }, { label: t('navSettings') }]}
+        right={<Menu items={flattenGroups(accountGroups, 'settings')} />} />
+      {sideBySide
+        ? <SideLayout groups={groups} current={active} label={t('navSettings')}>{parts.find((p) => p.id === active)!.node}</SideLayout>
+        : parts.map((p) => <section key={p.id} className="stack" aria-label={p.label}><h2 className="sectionhead">{p.label}</h2>{p.node}</section>)}
       <p className="muted" dir="ltr">{t('versionLine', { web: __APP_VERSION__, server: cfg.version ?? '?' })}</p>
     </div>
   );

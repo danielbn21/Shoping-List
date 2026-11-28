@@ -6,17 +6,20 @@ import { AuthScreens, ChangePasswordScreen } from './Auth';
 import Home from './Home';
 import Settings from './Settings';
 import Admin from './Admin';
+import ListView from './ListView';
+import HouseholdScreen from './HouseholdScreen';
+import { CreateHousehold, CreateList } from './Create';
 import { syncModules } from './modules';
 import { initPrefs } from './prefs';
-import Menu, { type MenuItem } from './Menu';
+import type { NavGroup } from './SideNav';
+import { go, goBack, parentOf, replace, resetStartup, useRoute } from './nav';
 
 type State = { kind: 'loading' } | { kind: 'offline' } | { kind: 'ready'; cfg: Cfg; me: Me | null };
-type View = 'home' | 'settings' | 'admin';
 
 export default function App() {
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [, setLangTick] = useState(0); // redraw when a language module has been loaded or removed
-  const [view, setView] = useState<View>('home');
+  const route = useRoute();
 
   // English until the user is known; then the user's language (English too if its module is missing or switched off).
   // Set synchronously so every child renders in the right language and direction.
@@ -51,9 +54,23 @@ export default function App() {
 
   const logout = async () => {
     try { await api('/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
-    setView('home');
+    resetStartup(); replace({ k: 'home' });
     await load();
   };
+
+  // Esc does what the arrow does (not while typing, nor while a menu or dialog is open).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || route.k === 'home') return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      if (document.querySelector('.menu-panel, [role="dialog"]')) return;
+      e.preventDefault();
+      history.length > 1 ? goBack(parentOf(route)) : replace({ k: 'home' });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [route]);
 
   if (state.kind === 'loading') return <div className="auth"><p className="muted">{t('loading')}</p></div>;
 
@@ -77,28 +94,33 @@ export default function App() {
     return <ChangePasswordScreen cfg={cfg} forced onDone={load} onLogout={logout} />;
   }
 
-  const current: View = view === 'admin' && me.role !== 'admin' ? 'home' : view;
-  // The app's own pages live in the burger menu of every screen. Home needs no entry of its own on Home (and lists have a back arrow).
-  const account = (withHome: boolean): MenuItem[] => [
-    ...(withHome ? [{ label: t('navHome'), onClick: () => setView('home') }] : []),
-    { label: t('navSettings'), onClick: () => setView('settings'), current: current === 'settings' },
-    ...(me.role === 'admin' ? [{ label: t('navAdmin'), onClick: () => setView('admin'), current: current === 'admin' }] : []),
-    { label: t('signOut'), onClick: logout },
+  // The groups every menu ends with: Me (Settings, Sign out) and, for admins, Server (Administration). The first two groups of a menu
+  // (This list, Household) belong to the screen that shows it.
+  const accountGroups: NavGroup[] = [
+    { id: 'me', heading: t('menuGroupMe'), items: [
+      { id: 'settings', label: t('navSettings'), onClick: () => go({ k: 'settings' }) },
+      { id: 'signout', label: t('signOut'), onClick: logout },
+    ] },
+    ...(me.role === 'admin' ? [{ id: 'server', heading: t('menuGroupServer'), items: [{ id: 'admin', label: t('navAdmin'), onClick: () => go({ k: 'admin' }) }] }] : []),
   ];
+
+  // Pages that use the width of a tablet or desktop (a sidebar, two columns) get a wider column.
+  const wide = route.k === 'settings' || route.k === 'admin' || (route.k === 'list' && (!!route.page || route.tab === 'manage'));
+  const screen = (() => {
+    switch (route.k) {
+      case 'list': return <ListView key={route.id} listId={route.id} tab={route.tab} page={route.page} me={me} accountGroups={accountGroups} />;
+      case 'newList': return <CreateList me={me} initialHid={route.hid} accountGroups={accountGroups} />;
+      case 'newHousehold': return <CreateHousehold onDone={() => { load(); replace({ k: 'home' }); }} accountGroups={accountGroups} />;
+      case 'household': return <HouseholdScreen me={me} hid={route.hid} part={route.part} accountGroups={accountGroups} onChanged={load} />;
+      case 'settings': return <Settings me={me} cfg={cfg} onChange={load} accountGroups={accountGroups} section={route.section} />;
+      case 'admin': return me.role === 'admin' ? <Admin me={me} route={route} accountGroups={accountGroups} /> : null;
+      default: return <Home me={me} onMeChange={load} accountGroups={accountGroups} />;
+    }
+  })();
 
   return (
     <div className="shell">
-      {current !== 'home' && (
-        <header className="topbar">
-          <div className="brand"><img src="/icon-192.png" alt="" />{t('appName')}</div>
-          <Menu items={account(true)} />
-        </header>
-      )}
-      <main>
-        {current === 'home' && <Home me={me} onMeChange={load} accountItems={account(false)} />}
-        {current === 'settings' && <Settings me={me} cfg={cfg} onChange={load} onLogout={logout} />}
-        {current === 'admin' && <Admin me={me} />}
-      </main>
+      <main className={wide ? 'wide' : undefined}>{screen}</main>
     </div>
   );
 }

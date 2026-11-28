@@ -1,6 +1,12 @@
 import { Fragment, useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
-import { t, tx, errText, timeAgo } from './i18n';
+import { t, tx, errText, timeAgo, isRtl } from './i18n';
+import ScreenHeader from './ScreenHeader';
+import SideLayout, { type NavGroup } from './SideNav';
+import Menu from './Menu';
+import { flattenGroups } from './menus';
+import { go, goBack, replace, parentOf } from './nav';
+import { useMedia } from './util';
 import { CURRENCIES, currencyName } from './money';
 import ModulesAdmin from './ModulesAdmin';
 import type { Me } from './types';
@@ -13,26 +19,55 @@ type AdminUser = {
 };
 type HMember = { userId: number; name: string; username: string; role: 'owner' | 'member'; disabled: boolean };
 type AdminHousehold = { id: number; name: string; createdAt: number; members: HMember[]; counts: { lists: number; items: number; trips: number; receipts: number } };
-type Tab = 'users' | 'households' | 'modules' | 'settings' | 'configuration' | 'audit';
+type Area = 'people' | 'modules' | 'server' | 'audit';
 
-export default function Admin({ me }: { me: Me }) {
-  const [tab, setTab] = useState<Tab>('users');
+// Administration: four areas instead of six tabs (1.9.2). On a phone the areas are a list and each opens as its own screen with the arrow;
+// from 768 px they are a sidebar. People holds Users and Households, Server holds Settings and Config.
+export default function Admin({ me, route, accountGroups }: { me: Me; route: { area?: string; sub?: string; id?: number }; accountGroups: NavGroup[] }) {
+  const sideBySide = useMedia('(min-width: 768px)');
+  const areas: { id: Area; label: string }[] = [
+    { id: 'people', label: t('adminPeople') }, { id: 'modules', label: t('adminModules') }, { id: 'server', label: t('adminServer') }, { id: 'audit', label: t('adminAudit') },
+  ];
+  const picked = areas.find((x) => x.id === route.area)?.id;
+  const area: Area | undefined = picked ?? (sideBySide ? 'people' : undefined);
+  const areaLabel = areas.find((x) => x.id === area)?.label ?? t('navAdmin');
+  const open = (id: Area) => (sideBySide ? replace({ k: 'admin', area: id }) : go({ k: 'admin', area: id }));
+  const groups: NavGroup[] = [{ id: 'areas', items: areas.map((x) => ({ id: x.id, label: x.label, onClick: () => open(x.id) })) }];
+
+  const segs: Record<string, { id: string; label: string }[]> = {
+    people: [{ id: 'users', label: t('adminUsers') }, { id: 'households', label: t('adminHouseholds') }],
+    server: [{ id: 'settings', label: t('adminSettings') }, { id: 'config', label: t('adminConfigTab') }],
+  };
+  const sub = area && segs[area] ? (segs[area].find((x) => x.id === route.sub)?.id ?? segs[area][0].id) : undefined;
+  const content = area && (
+    <div className="stack">
+      {segs[area] && sub && (
+        <div className="seg" role="group" aria-label={areaLabel}>
+          {segs[area].map((x) => <button key={x.id} type="button" aria-pressed={sub === x.id} onClick={() => replace({ k: 'admin', area, sub: x.id })}>{x.label}</button>)}
+        </div>
+      )}
+      {area === 'people' && sub === 'users' && <Users me={me} />}
+      {area === 'people' && sub === 'households' && <Households me={me} openId={route.id ?? null} onOpen={(id) => (id === null ? goBack({ k: 'admin', area: 'people', sub: 'households' }) : go({ k: 'admin', area: 'people', sub: 'households', id }))} />}
+      {area === 'modules' && <ModulesAdmin me={me} />}
+      {area === 'server' && sub === 'settings' && <ServerSettings />}
+      {area === 'server' && sub === 'config' && <Configuration />}
+      {area === 'audit' && <Audit />}
+    </div>
+  );
+
+  const parent = parentOf({ k: 'admin', ...route });
   return (
     <div className="stack">
-      <h1>{t('navAdmin')}</h1>
-      <div className="tabs" role="group">
-        {(['users', 'households', 'modules', 'settings', 'configuration', 'audit'] as Tab[]).map((k) => (
-          <button key={k} aria-pressed={tab === k} onClick={() => setTab(k)}>
-            {k === 'users' ? t('adminUsers') : k === 'households' ? t('adminHouseholds') : k === 'configuration' ? t('adminConfigTab') : k === 'modules' ? t('adminModules') : k === 'settings' ? t('adminSettings') : t('adminAudit')}
-          </button>
-        ))}
-      </div>
-      {tab === 'users' && <Users me={me} />}
-      {tab === 'households' && <Households me={me} />}
-      {tab === 'configuration' && <Configuration />}
-      {tab === 'modules' && <ModulesAdmin me={me} />}
-      {tab === 'settings' && <ServerSettings />}
-      {tab === 'audit' && <Audit />}
+      <ScreenHeader title={areaLabel} scope={area ? t('navAdmin') : t('scopeServer')} onBack={() => goBack(parent)} backLabel={area && !sideBySide ? t('backTo', { name: t('navAdmin') }) : t('backGeneric')}
+        crumbs={[{ label: t('navHome'), onClick: () => go({ k: 'home' }) }, { label: t('navAdmin'), onClick: area ? () => go({ k: 'admin' }) : undefined }, ...(area ? [{ label: areaLabel }] : [])]}
+        right={<Menu items={flattenGroups(accountGroups, 'admin')} />} />
+      {sideBySide
+        ? <SideLayout groups={groups} current={area} label={t('navAdmin')}>{content}</SideLayout>
+        : area ? content : (
+          <nav className="card arealist" aria-label={t('navAdmin')}>
+            {areas.map((x) => <button key={x.id} type="button" onClick={() => open(x.id)}><span className="grow">{x.label}</span><span aria-hidden="true" className="chev">{isRtl() ? '‹' : '›'}</span></button>)}
+          </nav>
+        )}
     </div>
   );
 }
@@ -351,10 +386,11 @@ function AddToHousehold({ user, households, onAdd }: { user: AdminUser; househol
   );
 }
 
-function Households({ me }: { me: Me }) {
+function Households({ me, openId, onOpen }: { me: Me; openId: number | null; onOpen: (id: number | null) => void }) {
   const [hs, setHs] = useState<AdminHousehold[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [open, setOpen] = useState<number | null>(null);
+  const open = openId;
+  const setOpen = onOpen;
   const [error, setError] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [nf, setNf] = useState({ name: '', ownerId: String(me.id) });
@@ -373,6 +409,7 @@ function Households({ me }: { me: Me }) {
   const when = (ms: number) => new Date(ms).toLocaleDateString();
 
   const h = hs.find((x) => x.id === open) ?? null;
+  useEffect(() => { if (h) setRename(h.name); }, [h?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
   const owners = (x: AdminHousehold) => x.members.filter((m) => m.role === 'owner').map((m) => m.name).join(', ');
 
   if (h) {
@@ -380,7 +417,6 @@ function Households({ me }: { me: Me }) {
     return (
       <div className="stack">
         {error && <p className="error" role="alert">{error}</p>}
-        <div><button className="btn small" onClick={() => { setOpen(null); setDel(null); setError(''); }}>← {t('adminHouseholds')}</button></div>
         <div className="card stack">
           <form className="row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); if (rename.trim() && rename.trim() !== h.name) run(async () => { await api(`/households/${h.id}`, { method: 'PATCH', body: { name: rename.trim() } }); }); }}>
             <input type="text" dir="auto" aria-label={t('hhName')} value={rename} onChange={(e) => setRename(e.target.value)} className="grow" maxLength={60} />
