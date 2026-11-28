@@ -36,9 +36,11 @@ with sync_playwright() as p:
     console = []
     page.on("pageerror", lambda e: console.append(str(e)))
     no_overflow = lambda: page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    go = lambda h: (page.evaluate(f"location.hash = '{h}'"), page.wait_for_timeout(400))   # 1.9.2: every admin screen has an address
     page.goto(BASE)
     page.get_by_role("button", name="Menu", exact=True).click()
-    page.get_by_role("menuitem", name="Admin").click()
+    page.get_by_role("menuitem", name="Administration").click()
+    page.locator(".arealist button", has_text="People").click()   # 1.9.2: Administration is four areas; Users and Households are in People
 
     # ---- the Households tab
     page.get_by_role("button", name="Households", exact=True).click()
@@ -76,7 +78,7 @@ with sync_playwright() as p:
     page.screenshot(path="/tmp/shots/41-admin-household-open.png", full_page=True)
 
     # ---- a user's own view: their households, add and remove from there
-    page.get_by_role("button", name="← Households").click()
+    page.get_by_role("button", name="Back to Administration").click()
     page.get_by_role("button", name="Users", exact=True).click()
     card = page.locator("article.user-card", has_text="@noa")
     card.locator("summary").click()
@@ -108,7 +110,7 @@ with sync_playwright() as p:
     check("its list is gone too", api("get", f"/lists/{lid}").status == 404)
 
     # ---- 1.9.0: new settings groups, automatic checkpoints, save/restore, file download and restore
-    page.get_by_role("button", name="Server settings", exact=True).click()
+    go("#/admin/server/settings")
     page.wait_for_selector("text=Abuse protection")
     body = page.locator("main, body").first.inner_text()
     check("Settings has the new groups (Limits, Abuse protection, Defaults, Server)", all(x in body for x in ("Limits", "Abuse protection", "Defaults", "Server (read-only)", "Largest receipt photo (MB)", "Allowed: 1–50")), body[:200])
@@ -124,7 +126,7 @@ with sync_playwright() as p:
     check("and a value outside its range is not saved", api("get", "/admin/settings").json()["settings"]["max_image_mb"] == 20)
     page.get_by_label("Largest receipt photo (MB)").fill("20")
 
-    page.get_by_role("button", name="Config", exact=True).click()
+    go("#/admin/server/config")
     page.wait_for_selector("[data-testid=cfg-checkpoint]")
     check("a checkpoint was saved automatically before the change", "Before: Largest receipt photo (MB)" in page.locator("[data-testid=cfg-checkpoint]").first.inner_text(), page.locator("[data-testid=cfg-checkpoint]").first.inner_text())
     page.get_by_role("button", name="Save checkpoint…").click()
@@ -135,8 +137,9 @@ with sync_playwright() as p:
     page.screenshot(path="/tmp/shots/44-admin-configuration.png", full_page=True)
 
     api("put", "/admin/settings", {"max_image_mb": 7, "rl_login_per_min": 30})
-    page.reload(); page.get_by_role("button", name="Menu", exact=True).click(); page.get_by_role("menuitem", name="Admin").click()
-    page.get_by_role("button", name="Config", exact=True).click()
+    page.reload(); page.get_by_role("button", name="Menu", exact=True).click(); page.get_by_role("menuitem", name="Administration").click()
+    page.locator(".arealist button", has_text="Server").click()
+    go("#/admin/server/config")
     page.locator("[data-testid=cfg-checkpoint]", has_text="Working setup").get_by_role("button", name="Restore").click()
     pv = page.locator("[data-testid=cfg-preview]")
     pv.wait_for()
@@ -156,7 +159,7 @@ with sync_playwright() as p:
     doc = _json.load(open(path))
     check("Download file gives the configuration as JSON, without the email password", doc["format"] == "shoplist-config" and "pass" not in doc["core"]["smtp"], str(list(doc)))
     api("put", "/admin/settings", {"max_image_mb": 33})
-    page.get_by_role("button", name="Users", exact=True).click(); page.get_by_role("button", name="Config", exact=True).click()
+    go("#/admin/people/users"); go("#/admin/server/config")
     page.locator("input[type=file]").set_input_files(path)
     pv = page.locator("[data-testid=cfg-preview]"); pv.wait_for()
     check("Restore from file shows the same preview", "33 → 20" in pv.inner_text(), pv.inner_text())

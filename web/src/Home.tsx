@@ -1,21 +1,20 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
-import { t, errText } from './i18n';
+import { t } from './i18n';
 import { LIST_COLORS, type ListSummary, type Me } from './types';
-import ListView from './ListView';
-import HouseholdScreen from './HouseholdScreen';
-import Menu, { type MenuItem } from './Menu';
+import Menu from './Menu';
+import ScreenHeader from './ScreenHeader';
+import type { NavEntry, NavGroup } from './SideNav';
+import { flattenGroups } from './menus';
+import { go, replace, consumeStartup } from './nav';
+import { openModeOf } from './prefs';
 import { SortableList } from './dnd';
 
 type InstallEvent = Event & { prompt: () => Promise<void> };
-type Sub = { kind: 'home' } | { kind: 'newList'; hid: number } | { kind: 'newHousehold' } | { kind: 'household'; hid: number };
 
-// accountItems: what the app adds to every burger menu (Settings, Admin, Sign out); they come from App.
-export default function Home({ me, onMeChange, accountItems }: { me: Me; onMeChange: () => void; accountItems: MenuItem[] }) {
+// Home: the lists of every household. accountGroups (Me, Server) come from App and join the menu.
+export default function Home({ me, onMeChange, accountGroups }: { me: Me; onMeChange: () => void; accountGroups: NavGroup[] }) {
   const [lists, setLists] = useState<ListSummary[] | null>(null);
-  const [openId, setOpenId] = useState<number | null>(null);
-  const [auto, setAuto] = useState(true);
-  const [sub, setSub] = useState<Sub>({ kind: 'home' });
   const [reorderLists, setReorderLists] = useState<number | null>(null); // household whose lists are being reordered
   const [reorderHouseholds, setReorderHouseholds] = useState(false);
   const [installEvt, setInstallEvt] = useState<InstallEvent | null>(null);
@@ -31,20 +30,26 @@ export default function Home({ me, onMeChange, accountItems }: { me: Me; onMeCha
     window.addEventListener('beforeinstallprompt', onPrompt);
     return () => window.removeEventListener('beforeinstallprompt', onPrompt);
   }, []);
-  // With exactly one list overall, open it straight away.
-  useEffect(() => { if (auto && lists && lists.length === 1 && openId === null && sub.kind === 'home') setOpenId(lists[0].id); }, [auto, lists, openId, sub.kind]);
+  // When the app opens: the last list the person was on (if they chose "where I left off"), else a lone list straight away. Once per sign-in:
+  // coming back to Home with the arrow never jumps forward again.
+  useEffect(() => {
+    if (!lists || !consumeStartup()) return;
+    const last = me.prefs.last?.list;
+    if (openModeOf(me.prefs) === 'last' && last !== undefined && lists.some((l) => l.id === last)) replace({ k: 'list', id: last });
+    else if (lists.length === 1) replace({ k: 'list', id: lists[0].id });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lists]);
 
-  const home = () => { setSub({ kind: 'home' }); load(); onMeChange(); };
-
-  if (openId !== null) return <ListView listId={openId} me={me} onBack={() => { setOpenId(null); setAuto(false); load(); }} accountItems={accountItems} />;
-  if (sub.kind === 'newList') return <CreateList me={me} initialHid={sub.hid} onCancel={home} onCreated={(id) => { setSub({ kind: 'home' }); setOpenId(id); }} />;
-  if (sub.kind === 'newHousehold') return <CreateHousehold onCancel={() => setSub({ kind: 'home' })} onCreated={home} />;
-  if (sub.kind === 'household') return <HouseholdScreen me={me} hid={sub.hid} onBack={home} onChanged={onMeChange} />;
   if (lists === null) return <p className="muted">{t('loading')}</p>;
 
   const multi = me.households.length > 1;
   const listsOf = (hid: number) => lists.filter((l) => l.householdId === hid);
   const only = me.households[0];
+  const hhItems = (hid: number): NavEntry[] => [
+    { id: `members${hid}`, label: t('membersInvites'), onClick: () => go({ k: 'household', hid, part: 'members' }) },
+    { id: `export${hid}`, label: t('exportPurchasesRow'), onClick: () => go({ k: 'household', hid, part: 'export' }) },
+    ...(listsOf(hid).length > 1 ? [{ id: `reorder${hid}`, label: t('reorderLists'), onClick: () => setReorderLists(hid) }] : []),
+  ];
 
   const reorderIn = async (hid: number, next: ListSummary[]) => {
     setLists((prev) => prev && [...prev.filter((l) => l.householdId !== hid), ...next]);
@@ -54,16 +59,16 @@ export default function Home({ me, onMeChange, accountItems }: { me: Me; onMeCha
     try { await api('/households/order', { method: 'PUT', body: { ids: next.map((h) => h.id) } }); } finally { onMeChange(); }
   };
 
-  const topItems: MenuItem[] = [];
-  if (!multi && only) {
-    topItems.push({ label: t('manageHousehold'), onClick: () => setSub({ kind: 'household', hid: only.id }) });
-    if (listsOf(only.id).length > 1) topItems.push({ label: t('reorderLists'), onClick: () => setReorderLists(only.id) });
-  }
-  if (me.canCreateHousehold) topItems.push({ label: t('newHouseholdBtn'), onClick: () => setSub({ kind: 'newHousehold' }) });
-  if (multi) topItems.push({ label: t('reorderHouseholds'), onClick: () => setReorderHouseholds(true) });
+  // Menu: Household (a single household's pages here; several households each have their own menu below), Me, Server.
+  const hhGroup: NavGroup[] = [];
+  if (!multi && only) hhGroup.push({ id: 'household', heading: t('menuGroupHousehold', { name: only.name }), items: hhItems(only.id) });
+  const more: NavGroup = { id: 'more', items: [] };
+  if (me.canCreateHousehold) more.items.push({ id: 'newhh', label: t('newHouseholdBtn'), onClick: () => go({ k: 'newHousehold' }) });
+  if (multi) more.items.push({ id: 'orderhh', label: t('reorderHouseholds'), onClick: () => setReorderHouseholds(true) });
+  if (!multi && more.items.length && hhGroup.length) hhGroup[0].items.push(...more.items); else if (more.items.length) hhGroup.push(more);
 
   const card = (l: ListSummary) => (
-    <button key={l.id} className="list-card" style={{ ['--c' as string]: LIST_COLORS[l.color] ?? LIST_COLORS.green }} onClick={() => setOpenId(l.id)}>
+    <button key={l.id} className="list-card" style={{ ['--c' as string]: LIST_COLORS[l.color] ?? LIST_COLORS.green }} onClick={() => go({ k: 'list', id: l.id })}>
       <span>
         <strong dir="auto">{l.name}</strong>
         <span className="muted" style={{ display: 'block' }}>{t('itemCount', { n: l.itemCount })}{l.visibility === 'private' ? ` · ${t('visPrivate')}` : ''}</span>
@@ -86,13 +91,11 @@ export default function Home({ me, onMeChange, accountItems }: { me: Me; onMeCha
 
   return (
     <div className="stack">
-      <div className="row between" style={{ flexWrap: 'nowrap' }}>
-        <h1>{t('hello', { name: me.name })}</h1>
-        <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
-          {!multi && only && <button className="btn signal" onClick={() => setSub({ kind: 'newList', hid: only.id })}>{t('newList')}</button>}
-          <Menu items={[...topItems, { heading: me.name }, ...accountItems]} />
-        </div>
-      </div>
+      <ScreenHeader brand title={t('hello', { name: me.name })}
+        right={<div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
+          {!multi && only && <button className="btn signal" onClick={() => go({ k: 'newList', hid: only.id })}>{t('newList')}</button>}
+          <Menu items={flattenGroups([...hhGroup, ...accountGroups])} />
+        </div>} />
 
       {reorderHouseholds && (
         <section className="card stack-sm">
@@ -112,14 +115,13 @@ export default function Home({ me, onMeChange, accountItems }: { me: Me; onMeCha
       )}
 
       {!reorderHouseholds && multi && me.households.map((h) => {
-        const items: MenuItem[] = [{ label: t('manageHousehold'), onClick: () => setSub({ kind: 'household', hid: h.id }) }];
-        if (listsOf(h.id).length > 1) items.push({ label: t('reorderLists'), onClick: () => setReorderLists(h.id) });
+        const items = flattenGroups([{ id: 'hh', items: hhItems(h.id) }]);
         return (
           <section key={h.id} className="hh stack-sm">
             <div className="row between" style={{ flexWrap: 'nowrap' }}>
               <h2 dir="auto" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{h.name}</h2>
               <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
-                <button className="btn small signal" onClick={() => setSub({ kind: 'newList', hid: h.id })}>{t('newList')}</button>
+                <button className="btn small signal" onClick={() => go({ k: 'newList', hid: h.id })}>{t('newList')}</button>
                 <Menu label={`${t('menu')}: ${h.name}`} items={items} />
               </div>
             </div>
@@ -138,90 +140,5 @@ export default function Home({ me, onMeChange, accountItems }: { me: Me; onMeCha
         </section>
       )}
     </div>
-  );
-}
-
-function CreateHousehold({ onCancel, onCreated }: { onCancel: () => void; onCreated: () => void }) {
-  const [name, setName] = useState('');
-  const [error, setError] = useState('');
-  async function submit(e: FormEvent) {
-    e.preventDefault(); setError('');
-    try { await api('/households', { method: 'POST', body: { name } }); onCreated(); } catch (err) { setError(errText(err)); }
-  }
-  return (
-    <form className="card stack" onSubmit={submit}>
-      <h1>{t('newHouseholdTitle')}</h1>
-      <label className="field"><span>{t('householdNameLabel')}</span>
-        <input type="text" dir="auto" required autoFocus value={name} onChange={(e) => setName(e.target.value)} /></label>
-      {error && <p className="error" role="alert">{error}</p>}
-      <div className="row">
-        <button className="btn primary" type="submit">{t('newHouseholdBtn')}</button>
-        <button className="btn" type="button" onClick={onCancel}>{t('cancel')}</button>
-      </div>
-    </form>
-  );
-}
-
-function CreateList({ me, initialHid, onCancel, onCreated }: { me: Me; initialHid: number; onCancel: () => void; onCreated: (id: number) => void }) {
-  const [name, setName] = useState('');
-  const [hid, setHid] = useState(initialHid);
-  const [vis, setVis] = useState<'household' | 'private'>('household');
-  const [color, setColor] = useState('green');
-  const [members, setMembers] = useState<{ id: number; name: string }[]>([]);
-  const [picked, setPicked] = useState<number[]>([]);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (vis !== 'private') return;
-    api<{ members: { id: number; name: string }[] }>(`/households/${hid}/members`)
-      .then((r) => setMembers(r.members.filter((m) => m.id !== me.id))).catch(() => setMembers([]));
-    setPicked([]);
-  }, [vis, hid, me.id]);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault(); setError('');
-    try {
-      const r = await api<{ id: number }>('/lists', { method: 'POST', body: { householdId: hid, name, visibility: vis, color, memberIds: picked } });
-      onCreated(r.id);
-    } catch (err) { setError(errText(err)); }
-  }
-
-  return (
-    <form className="card stack" onSubmit={submit}>
-      <h1>{t('newList')}</h1>
-      <label className="field"><span>{t('listName')}</span>
-        <input type="text" dir="auto" required autoFocus value={name} onChange={(e) => setName(e.target.value)} /></label>
-      {me.households.length > 1 && (
-        <label className="field"><span>{t('household')}</span>
-          <select value={hid} onChange={(e) => setHid(Number(e.target.value))}>
-            {me.households.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-          </select></label>
-      )}
-      <div className="field"><span>{t('shareWith')}</span>
-        <label className="check"><input type="radio" name="vis" checked={vis === 'household'} onChange={() => setVis('household')} />{t('visHousehold')}</label>
-        <label className="check"><input type="radio" name="vis" checked={vis === 'private'} onChange={() => setVis('private')} />{t('visPrivate')}</label>
-      </div>
-      {vis === 'private' && members.length > 0 && (
-        <div className="field"><span>{t('pickMembers')}</span>
-          {members.map((m) => (
-            <label className="check" key={m.id}>
-              <input type="checkbox" checked={picked.includes(m.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, m.id] : picked.filter((x) => x !== m.id))} /><bdi>{m.name}</bdi>
-            </label>
-          ))}
-        </div>
-      )}
-      <div className="field"><span>{t('listColor')}</span>
-        <div className="swatches">
-          {Object.entries(LIST_COLORS).map(([k, hex]) => (
-            <button type="button" key={k} className="swatch" aria-label={k} aria-pressed={color === k} style={{ ['--c' as string]: hex }} onClick={() => setColor(k)} />
-          ))}
-        </div>
-      </div>
-      {error && <p className="error" role="alert">{error}</p>}
-      <div className="row">
-        <button className="btn primary" type="submit">{t('createList')}</button>
-        <button className="btn" type="button" onClick={onCancel}>{t('cancel')}</button>
-      </div>
-    </form>
   );
 }

@@ -1,4 +1,5 @@
 :root {
+  --head-h: 60px;   /* the shared screen header (see .screenhead) */
   --ink: #12231b;
   --paper: #eef3ec;
   --card: #ffffff;
@@ -62,13 +63,6 @@ button, input, select { font: inherit; color: inherit; }
 
 /* ---------- layout ---------- */
 .shell { min-height: 100dvh; display: flex; flex-direction: column; }
-.topbar {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: max(10px, env(safe-area-inset-top)) 16px 10px;
-  background: var(--ink); color: #f1f6f2;
-}
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: -0.01em; }
-.brand img { width: 28px; height: 28px; border-radius: 7px; }
 main { width: 100%; max-width: 760px; margin: 0 auto; padding: 20px 16px calc(32px + env(safe-area-inset-bottom)); flex: 1; }
 .stack { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 .stack-sm { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
@@ -163,7 +157,7 @@ table.log td { padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-
 .swatch[aria-pressed="true"] { border-color: var(--text); }
 .listhead { display: flex; align-items: center; gap: 12px; }
 .listhead h1 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.addbar { position: sticky; top: 0; z-index: 3; background: var(--paper); padding: 8px 0 10px; display: grid; gap: 8px; }
+.addbar { position: sticky; top: calc(var(--head-h) + env(safe-area-inset-top, 0px)); z-index: 3; background: var(--paper); padding: 8px 0 10px; display: grid; gap: 8px; }
 .addrow { display: flex; gap: 8px; }
 .addrow input[type="text"] { flex: 1; min-height: 52px; font-size: 1.05rem; }
 .addrow .btn { min-height: 52px; }
@@ -257,6 +251,7 @@ details.store summary { min-height: 40px; display: flex; align-items: center; fo
 /* ---------- burger menu and household sections ---------- */
 .menu { position: relative; }
 .menu-panel {
+  max-height: calc(100dvh - 96px); overflow-y: auto;
   position: absolute; inset-inline-end: 0; top: calc(100% + 6px); z-index: 20; min-width: 210px; padding: 6px; display: grid; gap: 2px;
   background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
 }
@@ -360,3 +355,48 @@ select.sortsel { width: auto; min-height: 38px; padding: 4px 10px; }
 .past-row .btn.plus { flex: none; width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 12px; font-size: 1.4rem; line-height: 1; }
 .past.open { margin: 4px 0; padding: 0 8px 8px; border: 1.5px solid var(--brand); border-radius: 12px; }
 .past-more { display: grid; gap: 8px; padding: 2px 0 4px; }
+
+
+/* ---------- 1.9.2: one header, one menu structure, wider screens ---------- */
+.screenhead {
+  position: sticky; top: 0; z-index: 35; box-sizing: border-box; display: flex; align-items: center; gap: 10px;
+  margin: -20px -16px 12px; padding: env(safe-area-inset-top, 0px) 16px 0; height: calc(var(--head-h) + env(safe-area-inset-top, 0px));
+  background: var(--paper); border-bottom: 1px solid var(--line);
+}
+.screenhead { order: -2; }   /* above the tab pills of a wide screen (those are order -1) */
+.screentitles { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.screenhead h1 { font-size: 1.3rem; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; align-self: flex-start; }
+.screenhead .scope, .crumbs { font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crumbs { color: var(--muted); }
+.crumbs .btn.link { padding: 0; min-height: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
+.screenlogo { width: 34px; height: 34px; border-radius: 8px; flex: none; }
+.sectionhead { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 10px 2px 0; }
+.quickadd {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 8px 14px; text-align: start; cursor: pointer;
+  border: 1.5px dashed var(--ink); border-radius: 12px; background: var(--card); color: var(--text); font: inherit; font-weight: 700;
+}
+:root[data-theme="dark"] .quickadd { border-color: var(--signal); }
+.arealist { padding: 4px; display: grid; }
+.arealist button { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 8px 12px; border: 0; border-radius: 10px; background: transparent; color: var(--text); font: inherit; font-weight: 700; text-align: start; cursor: pointer; }
+.arealist .chev { color: var(--muted); font-size: 1.3rem; }
+.sidelayout { display: block; }
+.manage-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.manage-cols > section { min-width: 0; }
+@media (min-width: 768px) {
+  main.wide { max-width: 1120px; }
+  .sidelayout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 24px; align-items: start; }
+  .sidenav { position: sticky; top: calc(var(--head-h) + env(safe-area-inset-top, 0px) + 16px); display: grid; gap: 14px; }
+  .sidegroup { display: grid; gap: 2px; }
+  .sidegroup .menu-heading { margin: 0 12px 4px; }
+  .sidenav button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 42px; padding: 8px 12px; border: 0; border-radius: 10px; background: transparent; color: var(--text); font: inherit; text-align: start; cursor: pointer; }
+  .sidenav button[aria-current="page"] { background: var(--card); font-weight: 800; box-shadow: inset 0 0 0 1.5px var(--line); }
+  .sidenav button.danger { color: var(--danger); }
+  .sidecontent { min-width: 0; }
+}
+@media (max-width: 767px) { .sidenav { display: none; } }
+@media (hover: hover) {
+  .sidenav button:hover, .arealist button:hover { background: var(--card); }
+  button.card:hover { border-color: var(--ink); }
+  .quickadd:hover { background: var(--paper); }
+}
+:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
